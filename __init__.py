@@ -13,7 +13,6 @@ bl_info = {
 import bpy
 import re
 import json
-import time
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 # ==========================================
@@ -106,27 +105,8 @@ def _(msg):
 # 2. 核心数据、状态标志与工具函数
 # ==========================================
 
-_AUTO_KEYFRAME_DEBOUNCE = 0.30
-_AUTO_KEYFRAME_TIMER_STEP = 0.05
-
-_pending_auto_keyframes = {}
-_auto_keyframe_timer_running = False
-_auto_keyframe_commit_running = False
 _syncing_slider_values = False
 
-
-def clear_auto_keyframe_queue():
-    global _pending_auto_keyframes, _auto_keyframe_timer_running
-    _pending_auto_keyframes.clear()
-    _auto_keyframe_timer_running = False
-
-
-@bpy.app.handlers.persistent
-def undo_redo_handler(scene, dummy=None):
-    """撤销/重做时清空自动 K 帧队列，避免延迟提交跨越历史边界。"""
-    global _auto_keyframe_commit_running
-    clear_auto_keyframe_queue()
-    _auto_keyframe_commit_running = False
 
 def match_pattern(string, pattern):
     """支持通配符匹配（形如 *[Eye] 后缀安全匹配）"""
@@ -261,48 +241,39 @@ def check_and_sync_sk_items(mesh):
     sync_sk_item_slider_values(mesh)
 
 
-def queue_auto_keyframe(mesh, kb_name, value, frame):
-    global _auto_keyframe_timer_running
-    task_key = (mesh.name, kb_name, int(frame))
-    _pending_auto_keyframes[task_key] = {
-        "value": float(value),
-        "last_change": time.monotonic(),
-    }
-    if not _auto_keyframe_timer_running:
-        _auto_keyframe_timer_running = True
-        bpy.app.timers.register(process_pending_auto_keyframes, first_interval=_AUTO_KEYFRAME_TIMER_STEP)
+def apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr):
+    if key_name not in key_blocks:
+        return []
+
+    affected_names = []
+    key_blocks[key_name].value = value
+    set_sk_item_slider_value(mesh, key_name, value)
+    affected_names.append(key_name)
+
+    if mgr.mirror_mode:
+        mirror_name_value = mirror_name(key_name)
+        if mirror_name_value and mirror_name_value in key_blocks:
+            key_blocks[mirror_name_value].value = value
+            set_sk_item_slider_value(mesh, mirror_name_value, value)
+            affected_names.append(mirror_name_value)
+
+    return affected_names
 
 
-def process_pending_auto_keyframes():
-    global _auto_keyframe_timer_running
-
-    if not _pending_auto_keyframes:
-        _auto_keyframe_timer_running = False
-        return None
-
-    if _auto_keyframe_commit_running:
-        return _AUTO_KEYFRAME_TIMER_STEP
-
-    now = time.monotonic()
-    has_ready_task = any(
-        now - task["last_change"] >= _AUTO_KEYFRAME_DEBOUNCE
-        for task in _pending_auto_keyframes.values()
-    )
-    if not has_ready_task:
-        return _AUTO_KEYFRAME_TIMER_STEP
-
-    try:
-        bpy.ops.sk_helper.commit_auto_keyframes()
-    except Exception as e:
-        print(f"[ShapeKey Organizer] Auto-keyframe commit failed: {e}")
-        clear_auto_keyframe_queue()
-        return None
-
-    if _pending_auto_keyframes:
-        return _AUTO_KEYFRAME_TIMER_STEP
-
-    _auto_keyframe_timer_running = False
-    return None
+def upsert_shape_key_keyframe(shape_keys, key_name, frame, value):
+    data_path = f'key_blocks["{key_name}"].value'
+    action = shape_keys.animation_data.action if shape_keys.animation_data else None
+    if action:
+        for fcurve in action.fcurves:
+            if fcurve.data_path != data_path:
+                continue
+            for kp in fcurve.keyframe_points:
+                if abs(kp.co[0] - frame) < 0.01:
+                    kp.co[1] = value
+                    fcurve.update()
+                    return
+            break
+    shape_keys.keyframe_insert(data_path=data_path, frame=frame)
 
 
 def on_shapekey_slider_changed(self, context):
@@ -319,9 +290,6 @@ def on_shapekey_slider_changed(self, context):
     if self.name not in key_blocks:
         return
 
-    kb = key_blocks[self.name]
-    kb.value = self.slider_value
-
     mgr = getattr(context.window_manager, "sk_manager", None) if context else None
     if mgr is None:
         try:
@@ -331,24 +299,25 @@ def on_shapekey_slider_changed(self, context):
     if mgr is None:
         return
 
-    mirror_name_value = None
-    if mgr.mirror_mode:
-        mirror_name_value = mirror_name(self.name)
-        if mirror_name_value and mirror_name_value in key_blocks:
-            key_blocks[mirror_name_value].value = self.slider_value
-            set_sk_item_slider_value(mesh, mirror_name_value, self.slider_value)
+    affected_names = set(apply_value_to_shapekey(mesh, key_blocks, self.name, self.slider_value, mgr))
+
+    # 勾选多个后，拖动其中一个已勾选项时，其他勾选项同步采用相同数值。
+    if self.selected:
+        for item in mesh.sk_items:
+            if item.name == self.name or not item.selected:
+                continue
+            for affected_name in apply_value_to_shapekey(mesh, key_blocks, item.name, self.slider_value, mgr):
+                affected_names.add(affected_name)
 
     if mgr.auto_keyframe:
         scene = context.scene if context and context.scene else getattr(bpy.context, "scene", None)
         if scene:
-            queue_auto_keyframe(mesh, self.name, self.slider_value, scene.frame_current)
-            if mirror_name_value and mirror_name_value in key_blocks:
-                queue_auto_keyframe(mesh, mirror_name_value, self.slider_value, scene.frame_current)
+            for affected_name in affected_names:
+                upsert_shape_key_keyframe(mesh.shape_keys, affected_name, scene.frame_current, self.slider_value)
 
 
 def on_auto_keyframe_toggled(self, context):
-    if not self.auto_keyframe:
-        clear_auto_keyframe_queue()
+    return None
 
 
 @bpy.app.handlers.persistent
@@ -501,54 +470,6 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
 # ==========================================
 # 5. 操作算子 (Operators)
 # ==========================================
-
-class SK_OT_commit_auto_keyframes(bpy.types.Operator):
-    """将已经稳定下来的代理滑块值写入关键帧。"""
-    bl_idname = "sk_helper.commit_auto_keyframes"
-    bl_label = "Commit Auto Keyframes"
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
-
-    def execute(self, context):
-        global _auto_keyframe_commit_running
-
-        if _auto_keyframe_commit_running:
-            return {'CANCELLED'}
-
-        _auto_keyframe_commit_running = True
-        ready_keys = []
-        now = time.monotonic()
-
-        try:
-            for task_key, task in list(_pending_auto_keyframes.items()):
-                if now - task["last_change"] < _AUTO_KEYFRAME_DEBOUNCE:
-                    continue
-
-                mesh_name, kb_name, frame = task_key
-                mesh = bpy.data.meshes.get(mesh_name)
-                if not mesh or not mesh.shape_keys:
-                    ready_keys.append(task_key)
-                    continue
-
-                key_blocks = mesh.shape_keys.key_blocks
-                if kb_name not in key_blocks:
-                    ready_keys.append(task_key)
-                    continue
-
-                key_blocks[kb_name].value = task["value"]
-                mesh.shape_keys.keyframe_insert(
-                    data_path=f'key_blocks["{kb_name}"].value',
-                    frame=frame
-                )
-                set_sk_item_slider_value(mesh, kb_name, task["value"])
-                ready_keys.append(task_key)
-        finally:
-            _auto_keyframe_commit_running = False
-
-        for task_key in ready_keys:
-            _pending_auto_keyframes.pop(task_key, None)
-
-        return {'FINISHED'}
-
 
 class SK_OT_add_category(bpy.types.Operator):
     bl_idname = "sk_helper.add_category"
@@ -1005,7 +926,6 @@ classes = [
     ShapeKeyCategoryItem,
     MESH_UL_sk_categories,
     MESH_UL_filtered_shapekeys,
-    SK_OT_commit_auto_keyframes,
     SK_OT_add_category,
     SK_OT_remove_category,
     SK_OT_reorder_category,
@@ -1047,31 +967,14 @@ def register():
         print(f"Register properties failed: {e}")
     if shapekey_monitor_handler not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(shapekey_monitor_handler)
-    for handler_list in (
-        bpy.app.handlers.undo_pre,
-        bpy.app.handlers.undo_post,
-        bpy.app.handlers.redo_pre,
-        bpy.app.handlers.redo_post,
-    ):
-        if undo_redo_handler not in handler_list:
-            handler_list.append(undo_redo_handler)
 
 def unregister():
-    clear_auto_keyframe_queue()
     try:
         bpy.app.translations.unregister(__name__)
     except Exception:
         pass
     if shapekey_monitor_handler in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(shapekey_monitor_handler)
-    for handler_list in (
-        bpy.app.handlers.undo_pre,
-        bpy.app.handlers.undo_post,
-        bpy.app.handlers.redo_pre,
-        bpy.app.handlers.redo_post,
-    ):
-        if undo_redo_handler in handler_list:
-            handler_list.remove(undo_redo_handler)
     try:
         if hasattr(bpy.types.Mesh, "sk_items"):
             del bpy.types.Mesh.sk_items
