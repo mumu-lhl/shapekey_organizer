@@ -28,6 +28,10 @@ _zh_fallback = {
     "Add Category": "添加分类",
     "Remove Category": "移除分类",
     "Move Category": "移动分类",
+    "Move Shape Key": "移动形态键",
+    "Move Mode": "移动模式",
+    "Move Selected Up": "勾选项上移",
+    "Move Selected Down": "勾选项下移",
     "Auto Match Category": "自动规则分类",
     "Move Selected to Active Category": "将选定移至当前分类",
     "Remove Selected from Category": "从当前分类移除选定",
@@ -54,6 +58,8 @@ _zh_fallback = {
     "Keyframe Selected Checked": "批量K帧勾选项",
     "Reset Selected to 0": "批量重置为 0",
     "Global Option Configuration": "全局配置",
+    "Show Only Keyed": "仅显示已打关键帧",
+    "Search": "搜索",
     "Please create or select a category": "请在上方选择或创建一个分类",
     "Name": "名称",
     "Insert Shape Key Keyframe": "自动写入关键帧",
@@ -187,6 +193,96 @@ def has_any_keyframes(key_block_parent, key_name):
     return any(fcurve.data_path == data_path and len(fcurve.keyframe_points) > 0 for fcurve in action.fcurves)
 
 
+def get_visible_category_item_indices(obj, mgr):
+    categories = obj.data.sk_categories
+    if not categories or mgr.active_category_index < 0 or mgr.active_category_index >= len(categories):
+        return []
+
+    active_cat = categories[mgr.active_category_index]
+    result = []
+    for index, item in enumerate(obj.data.sk_items):
+        if item.category != active_cat.name:
+            continue
+        if mgr.show_only_keyed and not has_any_keyframes(obj.data.shape_keys, item.name):
+            continue
+        result.append(index)
+    return result
+
+
+def get_sk_item_index_by_name(mesh, key_name):
+    for index, item in enumerate(mesh.sk_items):
+        if item.name == key_name:
+            return index
+    return -1
+
+
+def get_current_manager(context=None):
+    ctx = context or getattr(bpy, "context", None)
+    if not ctx:
+        return None
+    try:
+        return ctx.window_manager.sk_manager
+    except Exception:
+        return None
+
+
+def sync_active_item_by_name(mesh, mgr):
+    if not mgr or not mesh:
+        return
+
+    if mgr.active_item_name:
+        name_index = get_sk_item_index_by_name(mesh, mgr.active_item_name)
+        if name_index >= 0 and mgr.active_item_index != name_index:
+            mgr.active_item_index = name_index
+            return
+
+    if 0 <= mgr.active_item_index < len(mesh.sk_items):
+        mgr.active_item_name = mesh.sk_items[mgr.active_item_index].name
+    elif len(mesh.sk_items) > 0:
+        mgr.active_item_index = min(max(0, mgr.active_item_index), len(mesh.sk_items) - 1)
+        mgr.active_item_name = mesh.sk_items[mgr.active_item_index].name
+    else:
+        mgr.active_item_name = ""
+
+
+def reorder_sk_items_from_preset(mesh, categories_data):
+    kb_names = [kb.name for kb in mesh.shape_keys.key_blocks if kb.name != "Basis"] if mesh.shape_keys else []
+    if not kb_names:
+        return
+
+    cat_cache = {item.name: item.category for item in mesh.sk_items}
+    sel_cache = {item.name: item.selected for item in mesh.sk_items}
+
+    ordered_names = []
+    for cat_data in categories_data:
+        for key_name in cat_data.get("assigned_keys", []):
+            if key_name in kb_names and key_name not in ordered_names:
+                ordered_names.append(key_name)
+
+    for key_name in kb_names:
+        if key_name not in ordered_names:
+            ordered_names.append(key_name)
+
+    mesh.sk_items.clear()
+    for name in ordered_names:
+        item = mesh.sk_items.add()
+        item.name = name
+        item.category = cat_cache.get(name, "")
+        item.selected = sel_cache.get(name, False)
+
+
+def reorder_sk_items_by_names(mesh, ordered_names):
+    cat_cache = {item.name: item.category for item in mesh.sk_items}
+    sel_cache = {item.name: item.selected for item in mesh.sk_items}
+
+    mesh.sk_items.clear()
+    for name in ordered_names:
+        item = mesh.sk_items.add()
+        item.name = name
+        item.category = cat_cache.get(name, "")
+        item.selected = sel_cache.get(name, False)
+
+
 def get_keyframe_button_icon(key_block_parent, key_name, frame, current_value):
     keyed_value = get_keyframe_value_on_current_frame(key_block_parent, key_name, frame)
     if keyed_value is None:
@@ -216,8 +312,11 @@ def check_and_sync_sk_items(mesh):
     if kb_names != item_names:
         cat_cache = {item.name: item.category for item in mesh.sk_items}
         sel_cache = {item.name: item.selected for item in mesh.sk_items}
+        preserved_names = [name for name in item_names if name in kb_names]
+        appended_names = [name for name in kb_names if name not in preserved_names]
+        final_names = preserved_names + appended_names
         mesh.sk_items.clear()
-        for name in kb_names:
+        for name in final_names:
             item = mesh.sk_items.add()
             item.name = name
             item.category = cat_cache.get(name, "")
@@ -317,6 +416,19 @@ def on_auto_keyframe_toggled(self, context):
     return None
 
 
+def on_active_item_index_changed(self, context):
+    obj = None
+    try:
+        obj = context.active_object if context else bpy.context.active_object
+    except Exception:
+        obj = None
+
+    if not obj or obj.type != 'MESH' or not hasattr(obj.data, "sk_items"):
+        return
+    if 0 <= self.active_item_index < len(obj.data.sk_items):
+        self.active_item_name = obj.data.sk_items[self.active_item_index].name
+
+
 def tag_redraw_all_areas():
     try:
         wm = bpy.context.window_manager
@@ -337,6 +449,7 @@ def sync_shapekey_ui_for_object(obj, depsgraph=None):
 
     mesh = obj.data
     check_and_sync_sk_items(mesh)
+    sync_active_item_by_name(mesh, get_current_manager())
 
     if depsgraph is None:
         try:
@@ -437,7 +550,8 @@ class ShapeKeyCategoryItem(bpy.types.PropertyGroup):
 class MeshShapeKeyManager(bpy.types.PropertyGroup):
     """存储在 WindowManager 级别的 UI 控制器数据。"""
     active_category_index: bpy.props.IntProperty(default=0)
-    active_item_index: bpy.props.IntProperty(default=0)
+    active_item_index: bpy.props.IntProperty(default=0, update=on_active_item_index_changed)
+    active_item_name: bpy.props.StringProperty(default="")
     auto_keyframe: bpy.props.BoolProperty(
         name="Auto Keyframe",
         description="Automatically insert keyframe when shape key value changes",
@@ -448,6 +562,21 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
         name="Mirror Mode",
         description="Automatically mirror value adjustments and keyframes to opposite side",
         default=False
+    )
+    show_only_keyed: bpy.props.BoolProperty(
+        name="Show Only Keyed",
+        description="Only show shape keys that have at least one keyframe",
+        default=False
+    )
+    reorder_mode: bpy.props.BoolProperty(
+        name="Move Mode",
+        description="Enable fast reposition mode for shape keys",
+        default=False
+    )
+    search_text: bpy.props.StringProperty(
+        name="Search",
+        description="Filter shape keys by name",
+        default=""
     )
 
 
@@ -478,8 +607,17 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             row = layout.row(align=True)
             row.prop(item, "selected", text="")
-            row.label(text=item.name)
+            mgr = context.window_manager.sk_manager
+            if mgr.reorder_mode:
+                before = row.operator("sk_helper.move_active_shapekey_to", text="", icon='TRIA_UP_BAR', emboss=True)
+                before.target_name = item.name
+                before.position = 'BEFORE'
+            row.label(text=item.name, icon='RESTRICT_SELECT_OFF' if index == mgr.active_item_index else 'BLANK1')
             row.prop(item, "slider_value", text="", slider=True)
+            if mgr.reorder_mode:
+                after = row.operator("sk_helper.move_active_shapekey_to", text="", icon='TRIA_DOWN_BAR', emboss=True)
+                after.target_name = item.name
+                after.position = 'AFTER'
             icon_type = get_keyframe_button_icon(
                 obj.data.shape_keys,
                 item.name,
@@ -502,8 +640,15 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
             return filter_flags, filter_order
         active_cat = categories[mgr.active_category_index]
         cat_name = active_cat.name
+        search_text = mgr.search_text.strip().lower()
         for i, item in enumerate(items):
             if item.category != cat_name:
+                filter_flags[i] &= ~self.bitflag_filter_item
+                continue
+            if search_text and search_text not in item.name.lower():
+                filter_flags[i] &= ~self.bitflag_filter_item
+                continue
+            if mgr.show_only_keyed and not has_any_keyframes(obj.data.shape_keys, item.name):
                 filter_flags[i] &= ~self.bitflag_filter_item
         return filter_flags, filter_order
 
@@ -576,6 +721,162 @@ class SK_OT_reorder_category(bpy.types.Operator):
                 return {'CANCELLED'}
             categories.move(idx, idx + 1)
             mgr.active_category_index = idx + 1
+        return {'FINISHED'}
+
+class SK_OT_reorder_shapekey(bpy.types.Operator):
+    """在当前分类的可见列表中调整形态键顺序。"""
+    bl_idname = "sk_helper.reorder_shapekey"
+    bl_label = "Move Shape Key"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    direction: bpy.props.EnumProperty(
+        items=[('UP', "Up", ""), ('DOWN', "Down", "")]
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH' or not obj.data.shape_keys:
+            return False
+        mgr = context.window_manager.sk_manager
+        return len(get_visible_category_item_indices(obj, mgr)) > 1
+
+    def execute(self, context):
+        obj = context.active_object
+        mgr = context.window_manager.sk_manager
+        visible_indices = get_visible_category_item_indices(obj, mgr)
+        active_index = mgr.active_item_index
+        if active_index not in visible_indices:
+            return {'CANCELLED'}
+
+        pos = visible_indices.index(active_index)
+        if self.direction == 'UP':
+            if pos == 0:
+                return {'CANCELLED'}
+            target_index = visible_indices[pos - 1]
+        else:
+            if pos >= len(visible_indices) - 1:
+                return {'CANCELLED'}
+            target_index = visible_indices[pos + 1]
+
+        obj.data.sk_items.move(active_index, target_index)
+        mgr.active_item_index = target_index
+        if 0 <= target_index < len(obj.data.sk_items):
+            mgr.active_item_name = obj.data.sk_items[target_index].name
+        return {'FINISHED'}
+
+class SK_OT_move_active_shapekey_to(bpy.types.Operator):
+    """将当前活动项，或当前勾选组，直接移动到目标项前后。"""
+    bl_idname = "sk_helper.move_active_shapekey_to"
+    bl_label = "Move Shape Key"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    target_name: bpy.props.StringProperty()
+    position: bpy.props.EnumProperty(
+        items=[('BEFORE', "Before", ""), ('AFTER', "After", "")]
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH' or not obj.data.shape_keys:
+            return False
+        mgr = context.window_manager.sk_manager
+        return 0 <= mgr.active_item_index < len(obj.data.sk_items)
+
+    def execute(self, context):
+        obj = context.active_object
+        mgr = context.window_manager.sk_manager
+        visible_indices = get_visible_category_item_indices(obj, mgr)
+        if not visible_indices:
+            return {'CANCELLED'}
+
+        all_names = [item.name for item in obj.data.sk_items]
+        visible_names = [obj.data.sk_items[i].name for i in visible_indices]
+        active_name = obj.data.sk_items[mgr.active_item_index].name if 0 <= mgr.active_item_index < len(obj.data.sk_items) else None
+        selected_names = [obj.data.sk_items[i].name for i in visible_indices if obj.data.sk_items[i].selected]
+
+        moving_names = selected_names if selected_names else ([active_name] if active_name else [])
+        if not moving_names:
+            return {'CANCELLED'}
+        if self.target_name in moving_names:
+            return {'CANCELLED'}
+        if self.target_name not in visible_names:
+            return {'CANCELLED'}
+
+        visible_remaining = [name for name in visible_names if name not in moving_names]
+        target_pos = visible_remaining.index(self.target_name)
+        insert_pos = target_pos if self.position == 'BEFORE' else target_pos + 1
+        reordered_visible_names = visible_remaining[:insert_pos] + moving_names + visible_remaining[insert_pos:]
+
+        for collection_index, name in zip(visible_indices, reordered_visible_names):
+            all_names[collection_index] = name
+
+        reorder_sk_items_by_names(obj.data, all_names)
+        if active_name:
+            mgr.active_item_name = active_name
+            mgr.active_item_index = get_sk_item_index_by_name(obj.data, active_name)
+        return {'FINISHED'}
+
+class SK_OT_move_selected_shapekeys(bpy.types.Operator):
+    """将当前可见列表中的多个勾选项整体移动一个位置。"""
+    bl_idname = "sk_helper.move_selected_shapekeys"
+    bl_label = "Move Selected Shape Keys"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    direction: bpy.props.EnumProperty(
+        items=[('UP', "Up", ""), ('DOWN', "Down", "")]
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH' or not obj.data.shape_keys:
+            return False
+        mgr = context.window_manager.sk_manager
+        visible_indices = get_visible_category_item_indices(obj, mgr)
+        return any(obj.data.sk_items[i].selected for i in visible_indices)
+
+    def execute(self, context):
+        obj = context.active_object
+        mgr = context.window_manager.sk_manager
+        visible_indices = get_visible_category_item_indices(obj, mgr)
+        if not visible_indices:
+            return {'CANCELLED'}
+
+        all_names = [item.name for item in obj.data.sk_items]
+        active_name = obj.data.sk_items[mgr.active_item_index].name if 0 <= mgr.active_item_index < len(obj.data.sk_items) else None
+        visible_names = [obj.data.sk_items[i].name for i in visible_indices]
+        selected_names = {obj.data.sk_items[i].name for i in visible_indices if obj.data.sk_items[i].selected}
+        if not selected_names:
+            return {'CANCELLED'}
+
+        reordered_visible_names = visible_names[:]
+        moved = False
+
+        if self.direction == 'UP':
+            for i in range(1, len(reordered_visible_names)):
+                if reordered_visible_names[i] in selected_names and reordered_visible_names[i - 1] not in selected_names:
+                    reordered_visible_names[i - 1], reordered_visible_names[i] = reordered_visible_names[i], reordered_visible_names[i - 1]
+                    moved = True
+        else:
+            for i in range(len(reordered_visible_names) - 2, -1, -1):
+                if reordered_visible_names[i] in selected_names and reordered_visible_names[i + 1] not in selected_names:
+                    reordered_visible_names[i], reordered_visible_names[i + 1] = reordered_visible_names[i + 1], reordered_visible_names[i]
+                    moved = True
+
+        if not moved:
+            return {'CANCELLED'}
+
+        for collection_index, name in zip(visible_indices, reordered_visible_names):
+            all_names[collection_index] = name
+
+        reorder_sk_items_by_names(obj.data, all_names)
+
+        if active_name:
+            mgr.active_item_name = active_name
+            mgr.active_item_index = get_sk_item_index_by_name(obj.data, active_name)
+
         return {'FINISHED'}
 
 class SK_OT_auto_match(bpy.types.Operator):
@@ -873,6 +1174,7 @@ class SK_OT_import_preset(bpy.types.Operator, ImportHelper):
                 for item in obj.data.sk_items:
                     if item.category == "" and match_pattern(item.name, pattern):
                         item.category = cat.name
+        reorder_sk_items_from_preset(obj.data, categories_data)
         context.window_manager.sk_manager.active_category_index = 0
         self.report({'INFO'}, f"Imported {len(categories_data)} categories successfully.")
         return {'FINISHED'}
@@ -929,6 +1231,15 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
         if len(categories) > 0 and 0 <= mgr.active_category_index < len(categories):
             active_cat = categories[mgr.active_category_index]
             box.label(text=f"{_('Active Category:')} {active_cat.name}", icon='FOLDER_REDIRECT')
+            row = box.row(align=True)
+            row.prop(mgr, "search_text", text="", icon='VIEWZOOM')
+            row = box.row(align=True)
+            row.prop(mgr, "show_only_keyed", text=_("Show Only Keyed"), toggle=True, icon='DECORATE_KEYFRAME')
+            row.prop(mgr, "reorder_mode", text=_("Move Mode"), toggle=True, icon='ARROW_LEFTRIGHT')
+            if mgr.reorder_mode:
+                row = box.row(align=True)
+                row.operator("sk_helper.move_selected_shapekeys", text=_("Move Selected Up"), icon='TRIA_UP').direction = 'UP'
+                row.operator("sk_helper.move_selected_shapekeys", text=_("Move Selected Down"), icon='TRIA_DOWN').direction = 'DOWN'
             box.template_list("MESH_UL_filtered_shapekeys", "", obj.data, "sk_items", mgr, "active_item_index")
             row = box.row(align=True)
             row.label(text=_("Batch Select:"))
@@ -970,6 +1281,9 @@ classes = [
     SK_OT_add_category,
     SK_OT_remove_category,
     SK_OT_reorder_category,
+    SK_OT_reorder_shapekey,
+    SK_OT_move_active_shapekey_to,
+    SK_OT_move_selected_shapekeys,
     SK_OT_auto_match,
     SK_OT_assign_category,
     SK_OT_clear_category,
