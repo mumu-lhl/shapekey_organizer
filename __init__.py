@@ -148,27 +148,11 @@ def get_sk_item(mesh, key_name):
 
 
 def set_sk_item_slider_value(mesh, key_name, value):
-    global _syncing_slider_values
-    item = get_sk_item(mesh, key_name)
-    if not item:
-        return
-    if abs(item.slider_value - value) <= 0.0001:
-        return
-    _syncing_slider_values = True
-    try:
-        item.slider_value = value
-    finally:
-        _syncing_slider_values = False
+    return None
 
 
-def sync_sk_item_slider_values(mesh):
-    if not mesh.shape_keys:
-        return
-    key_blocks = mesh.shape_keys.key_blocks
-    for item in mesh.sk_items:
-        kb = key_blocks.get(item.name)
-        if kb:
-            set_sk_item_slider_value(mesh, item.name, kb.value)
+def sync_sk_item_slider_values(mesh, source_key_blocks=None):
+    return None
 
 
 def cleanup_slider_value_fcurves(mesh):
@@ -276,7 +260,19 @@ def upsert_shape_key_keyframe(shape_keys, key_name, frame, value):
     shape_keys.keyframe_insert(data_path=data_path, frame=frame)
 
 
-def on_shapekey_slider_changed(self, context):
+def get_shapekey_slider_value(self):
+    mesh = self.id_data
+    if not mesh or not mesh.shape_keys:
+        return 0.0
+
+    kb = mesh.shape_keys.key_blocks.get(self.name)
+    if not kb:
+        return 0.0
+
+    return float(kb.value)
+
+
+def set_shapekey_slider_value(self, value):
     global _syncing_slider_values
 
     if _syncing_slider_values:
@@ -290,6 +286,7 @@ def on_shapekey_slider_changed(self, context):
     if self.name not in key_blocks:
         return
 
+    context = bpy.context
     mgr = getattr(context.window_manager, "sk_manager", None) if context else None
     if mgr is None:
         try:
@@ -299,25 +296,75 @@ def on_shapekey_slider_changed(self, context):
     if mgr is None:
         return
 
-    affected_names = set(apply_value_to_shapekey(mesh, key_blocks, self.name, self.slider_value, mgr))
+    affected_names = set(apply_value_to_shapekey(mesh, key_blocks, self.name, value, mgr))
 
     # 勾选多个后，拖动其中一个已勾选项时，其他勾选项同步采用相同数值。
     if self.selected:
         for item in mesh.sk_items:
             if item.name == self.name or not item.selected:
                 continue
-            for affected_name in apply_value_to_shapekey(mesh, key_blocks, item.name, self.slider_value, mgr):
+            for affected_name in apply_value_to_shapekey(mesh, key_blocks, item.name, value, mgr):
                 affected_names.add(affected_name)
 
     if mgr.auto_keyframe:
         scene = context.scene if context and context.scene else getattr(bpy.context, "scene", None)
         if scene:
             for affected_name in affected_names:
-                upsert_shape_key_keyframe(mesh.shape_keys, affected_name, scene.frame_current, self.slider_value)
+                upsert_shape_key_keyframe(mesh.shape_keys, affected_name, scene.frame_current, value)
 
 
 def on_auto_keyframe_toggled(self, context):
     return None
+
+
+def tag_redraw_all_areas():
+    try:
+        wm = bpy.context.window_manager
+    except Exception:
+        return
+
+    for window in wm.windows:
+        screen = window.screen
+        if not screen:
+            continue
+        for area in screen.areas:
+            area.tag_redraw()
+
+
+def sync_shapekey_ui_for_object(obj, depsgraph=None):
+    if obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
+        return
+
+    mesh = obj.data
+    check_and_sync_sk_items(mesh)
+
+    if depsgraph is None:
+        try:
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+        except Exception:
+            depsgraph = None
+
+    source_key_blocks = mesh.shape_keys.key_blocks
+    if depsgraph is not None:
+        try:
+            eval_obj = obj.evaluated_get(depsgraph)
+            eval_shape_keys = eval_obj.data.shape_keys if eval_obj and eval_obj.data else None
+            if eval_shape_keys:
+                source_key_blocks = eval_shape_keys.key_blocks
+        except Exception:
+            pass
+
+    sync_sk_item_slider_values(mesh, source_key_blocks=source_key_blocks)
+
+
+def sync_shapekey_ui_for_scene(scene, depsgraph=None):
+    for obj in scene.objects:
+        try:
+            sync_shapekey_ui_for_object(obj, depsgraph=depsgraph)
+        except Exception:
+            pass
+
+    tag_redraw_all_areas()
 
 
 @bpy.app.handlers.persistent
@@ -328,20 +375,14 @@ def shapekey_monitor_handler(scene, depsgraph):
     """
     if screen_is_playing():
         return
+    sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph)
 
-    try:
-        context = bpy.context
-        obj = context.active_object
-    except AttributeError:
+
+@bpy.app.handlers.persistent
+def shapekey_frame_change_handler(scene, depsgraph=None):
+    if screen_is_playing():
         return
-
-    if not obj or obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
-        return
-
-    try:
-        check_and_sync_sk_items(obj.data)
-    except Exception:
-        pass
+    sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph)
 
 
 # ==========================================
@@ -355,13 +396,13 @@ class ShapeKeyItem(bpy.types.PropertyGroup):
     selected: bpy.props.BoolProperty(default=False)
     slider_value: bpy.props.FloatProperty(
         name="Value",
-        default=0.0,
         min=-100.0,
         max=100.0,
         soft_min=0.0,
         soft_max=1.0,
         precision=3,
-        update=on_shapekey_slider_changed
+        get=get_shapekey_slider_value,
+        set=set_shapekey_slider_value
     )
 
 def on_category_name_changed(self, context):
@@ -967,6 +1008,8 @@ def register():
         print(f"Register properties failed: {e}")
     if shapekey_monitor_handler not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(shapekey_monitor_handler)
+    if shapekey_frame_change_handler not in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.append(shapekey_frame_change_handler)
 
 def unregister():
     try:
@@ -975,6 +1018,8 @@ def unregister():
         pass
     if shapekey_monitor_handler in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(shapekey_monitor_handler)
+    if shapekey_frame_change_handler in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.remove(shapekey_frame_change_handler)
     try:
         if hasattr(bpy.types.Mesh, "sk_items"):
             del bpy.types.Mesh.sk_items
