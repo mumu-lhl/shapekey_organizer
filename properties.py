@@ -78,6 +78,26 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
         description="Hide Auto Match and All Shape Keys tools after presets are ready",
         default=True
     )
+    left_alias_prefix: bpy.props.StringProperty(
+        name="Left Alias Prefix",
+        description="Text added before aliases of left mirror shape keys",
+        default=""
+    )
+    left_alias_suffix: bpy.props.StringProperty(
+        name="Left Alias Suffix",
+        description="Text added after aliases of left mirror shape keys",
+        default=""
+    )
+    right_alias_prefix: bpy.props.StringProperty(
+        name="Right Alias Prefix",
+        description="Text added before aliases of right mirror shape keys",
+        default=""
+    )
+    right_alias_suffix: bpy.props.StringProperty(
+        name="Right Alias Suffix",
+        description="Text added after aliases of right mirror shape keys",
+        default=""
+    )
     auto_keyframe: bpy.props.BoolProperty(
         name="Auto Keyframe",
         description="Automatically insert keyframe when shape key value changes",

@@ -3,11 +3,69 @@ import bpy
 from . import core as core_module
 from .i18n import _
 from .core import (
-    match_pattern, mirror_name, get_visible_category_item_indices, get_sk_item_index_by_name,
+    match_pattern, mirror_name, mirror_side, get_visible_category_item_indices, get_sk_item_index_by_name,
     reorder_sk_items_by_names, check_and_sync_sk_items, set_sk_item_slider_value,
     get_keyframe_value_on_current_frame, get_keyframe_button_icon, has_any_keyframes,
     tag_redraw_all_areas,
 )
+
+
+def _alias_without_side_markers(alias, prefix, suffix):
+    """Remove this side's configured markers before applying them again."""
+    if prefix and alias.startswith(prefix):
+        alias = alias[len(prefix):]
+    if suffix and alias.endswith(suffix):
+        alias = alias[:-len(suffix)]
+    return alias
+
+
+class SK_OT_sync_mirror_aliases(bpy.types.Operator):
+    """Create matching aliases for recognized left/right shape key pairs."""
+    bl_idname = "sk_helper.sync_mirror_aliases"
+    bl_label = "Sync Mirror Aliases"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
+
+    def execute(self, context):
+        mesh = context.active_object.data
+        mgr = context.window_manager.sk_manager
+        items_by_name = {item.name: item for item in mesh.sk_items}
+        synced_pairs = 0
+
+        # Only visit left keys. mirror_name() remains the single source of naming recognition.
+        for left_item in items_by_name.values():
+            if mirror_side(left_item.name) != 'LEFT':
+                continue
+            right_name = mirror_name(left_item.name)
+            right_item = items_by_name.get(right_name)
+            if not right_item:
+                continue
+
+            # The left alias wins when both exist; otherwise use the populated side.
+            if left_item.alias.strip():
+                base_alias = _alias_without_side_markers(
+                    left_item.alias, mgr.left_alias_prefix, mgr.left_alias_suffix
+                )
+            elif right_item.alias.strip():
+                base_alias = _alias_without_side_markers(
+                    right_item.alias, mgr.right_alias_prefix, mgr.right_alias_suffix
+                )
+            else:
+                continue
+
+            left_item.alias = f"{mgr.left_alias_prefix}{base_alias}{mgr.left_alias_suffix}"
+            right_item.alias = f"{mgr.right_alias_prefix}{base_alias}{mgr.right_alias_suffix}"
+            synced_pairs += 1
+
+        if synced_pairs:
+            self.report({'INFO'}, f"Synchronized aliases for {synced_pairs} mirror pair(s)")
+        else:
+            self.report({'INFO'}, "No mirrored shape key pairs with aliases found")
+        return {'FINISHED'}
 
 class SK_OT_add_category(bpy.types.Operator):
     bl_idname = "sk_helper.add_category"

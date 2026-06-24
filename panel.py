@@ -101,6 +101,16 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
                 box_all = box.box()
                 draw_all_shape_key_tools(box_all, context, obj, mgr)
 
+                mirror_alias_box = box.box()
+                mirror_alias_box.label(text=_("Mirror Alias"), icon='MOD_MIRROR')
+                row = mirror_alias_box.row(align=True)
+                row.prop(mgr, "left_alias_prefix", text=_("Left Prefix"))
+                row.prop(mgr, "left_alias_suffix", text=_("Left Suffix"))
+                row = mirror_alias_box.row(align=True)
+                row.prop(mgr, "right_alias_prefix", text=_("Right Prefix"))
+                row.prop(mgr, "right_alias_suffix", text=_("Right Suffix"))
+                mirror_alias_box.operator("sk_helper.sync_mirror_aliases", text=_("Sync Mirror Aliases"), icon='FILE_REFRESH')
+
         box = layout.box()
         box.label(text=_("Shape Keys in Category"), icon='SHAPEKEY_DATA')
         if len(categories) > 0 and 0 <= mgr.active_category_index < len(categories):

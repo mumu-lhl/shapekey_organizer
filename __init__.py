@@ -30,6 +30,7 @@ classes = [
     operators.SK_OT_remove_category,
     operators.SK_OT_reorder_category,
     operators.SK_OT_reorder_shapekey,
+    operators.SK_OT_sync_mirror_aliases,
     operators.SK_OT_move_active_shapekey_to,
     operators.SK_OT_auto_match,
     operators.SK_OT_assign_category,

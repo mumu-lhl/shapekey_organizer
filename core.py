@@ -4,6 +4,13 @@ import re
 _syncing_slider_values = False
 _syncing_all_selection = False
 
+MIRROR_NAME_PAIRS = (
+    ("_L", "_R"), ("_l", "_r"),
+    (".L", ".R"), (".l", ".r"),
+    ("Left", "Right"), ("left", "right"),
+    ("LEFT", "RIGHT"), ("_Left", "_Right"), ("_left", "_right"),
+)
+
 def match_pattern(string, pattern):
     """支持通配符匹配（形如 *[Eye] 后缀安全匹配）"""
     if not pattern:
@@ -18,13 +25,7 @@ def match_pattern(string, pattern):
 
 def mirror_name(name):
     """根据常见前缀/后缀自动推断镜像形态键名称"""
-    pairs = [
-        ("_L", "_R"), ("_l", "_r"),
-        (".L", ".R"), (".l", ".r"),
-        ("Left", "Right"), ("left", "right"),
-        ("LEFT", "RIGHT"), ("_Left", "_Right"), ("_left", "_right")
-    ]
-    for left, right in pairs:
+    for left, right in MIRROR_NAME_PAIRS:
         if name.endswith(left):
             return name[:-len(left)] + right
         if name.endswith(right):
@@ -33,6 +34,16 @@ def mirror_name(name):
             return name.replace(left, right)
         if right in name:
             return name.replace(right, left)
+    return None
+
+
+def mirror_side(name):
+    """Return the side recognized by :func:`mirror_name` for a shape key."""
+    for left, right in MIRROR_NAME_PAIRS:
+        if name.endswith(left) or left in name:
+            return 'LEFT'
+        if name.endswith(right) or right in name:
+            return 'RIGHT'
     return None
 
 
