@@ -111,7 +111,7 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
     )
     auto_keyframe: bpy.props.BoolProperty(
         name="Auto Keyframe",
-        description="Automatically insert keyframe when shape key value changes",
+        description="Enable Blender Auto Key for native shape key value editing",
         default=False,
         update=on_auto_keyframe_toggled
     )

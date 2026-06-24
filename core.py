@@ -286,12 +286,12 @@ def _cache_native_shape_key_values(mesh):
     return values
 
 
-def sync_native_shape_key_value_changes(obj, scene, mgr):
+def sync_native_shape_key_value_changes(obj, mgr):
     """Apply plugin value-sync options after a native ShapeKey.value edit.
 
     The UI now draws the native property so Blender can display its keyed state.
-    This handler restores the plugin's multi-select, mirror, and auto-key behavior
-    without animating a proxy property.
+    This handler restores the plugin's multi-select and mirror behavior without
+    animating a proxy property. Native Auto Key handles the edited value itself.
     """
     global _syncing_native_value_changes
 
@@ -321,7 +321,6 @@ def sync_native_shape_key_value_changes(obj, scene, mgr):
         return
 
     key_blocks = mesh.shape_keys.key_blocks
-    affected_names = set()
     _syncing_native_value_changes = True
     try:
         for key_name in changed_names:
@@ -329,19 +328,18 @@ def sync_native_shape_key_value_changes(obj, scene, mgr):
             if not item:
                 continue
             value = current_values[key_name]
-            affected_names.update(apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr))
+            apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr)
 
             if item.selected:
                 for selected_item in mesh.sk_items:
                     if selected_item.name == key_name or not selected_item.selected:
                         continue
-                    affected_names.update(
-                        apply_value_to_shapekey(mesh, key_blocks, selected_item.name, value, mgr)
-                    )
+                    apply_value_to_shapekey(mesh, key_blocks, selected_item.name, value, mgr)
 
-        if mgr.auto_keyframe:
-            for key_name in affected_names:
-                upsert_shape_key_keyframe(mesh.shape_keys, key_name, scene.frame_current, key_blocks[key_name].value)
+        # Do not keyframe from this depsgraph callback. It would become a
+        # separate undo step from the native ShapeKey.value drag. Blender's
+        # native Auto Key handles the directly edited value in the same undo
+        # operation; this callback is limited to value synchronization.
     finally:
         _syncing_native_value_changes = False
         _cache_native_shape_key_values(mesh)
@@ -433,7 +431,10 @@ def on_all_selected_changed(self, context):
 
 
 def on_auto_keyframe_toggled(self, context):
-    return None
+    """Use Blender's native Auto Key for direct ShapeKey.value editing."""
+    scene = context.scene if context else getattr(bpy.context, "scene", None)
+    if scene and scene.tool_settings:
+        scene.tool_settings.use_keyframe_insert_auto = self.auto_keyframe
 
 
 def on_active_item_index_changed(self, context):
@@ -499,7 +500,7 @@ def sync_shapekey_ui_for_object(obj, depsgraph=None, process_native_value_change
     sync_active_item_by_name(mesh, mgr)
 
     if process_native_value_changes and mgr:
-        sync_native_shape_key_value_changes(obj, bpy.context.scene, mgr)
+        sync_native_shape_key_value_changes(obj, mgr)
     else:
         _cache_native_shape_key_values(mesh)
 
