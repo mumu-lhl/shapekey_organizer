@@ -3,6 +3,8 @@ import re
 
 _syncing_slider_values = False
 _syncing_all_selection = False
+_syncing_native_value_changes = False
+_native_shape_key_value_cache = {}
 
 MIRROR_NAME_PAIRS = (
     ("_L", "_R"), ("_l", "_r"),
@@ -272,6 +274,79 @@ def upsert_shape_key_keyframe(shape_keys, key_name, frame, value):
     shape_keys.keyframe_insert(data_path=data_path, frame=frame)
 
 
+def _cache_native_shape_key_values(mesh):
+    if not mesh.shape_keys:
+        return {}
+    values = {
+        key_block.name: float(key_block.value)
+        for key_block in mesh.shape_keys.key_blocks
+        if key_block.name != "Basis"
+    }
+    _native_shape_key_value_cache[mesh.as_pointer()] = values
+    return values
+
+
+def sync_native_shape_key_value_changes(obj, scene, mgr):
+    """Apply plugin value-sync options after a native ShapeKey.value edit.
+
+    The UI now draws the native property so Blender can display its keyed state.
+    This handler restores the plugin's multi-select, mirror, and auto-key behavior
+    without animating a proxy property.
+    """
+    global _syncing_native_value_changes
+
+    mesh = obj.data
+    if not mesh.shape_keys:
+        return
+
+    cache_key = mesh.as_pointer()
+    current_values = {
+        key_block.name: float(key_block.value)
+        for key_block in mesh.shape_keys.key_blocks
+        if key_block.name != "Basis"
+    }
+    previous_values = _native_shape_key_value_cache.get(cache_key)
+    _native_shape_key_value_cache[cache_key] = current_values
+
+    # The first observation establishes a baseline. Only direct changes on the
+    # active mesh are treated as UI edits; other meshes may update via evaluation.
+    if _syncing_native_value_changes or previous_values is None or bpy.context.active_object != obj:
+        return
+
+    changed_names = [
+        name for name, value in current_values.items()
+        if name in previous_values and abs(value - previous_values[name]) > 0.000001
+    ]
+    if not changed_names:
+        return
+
+    key_blocks = mesh.shape_keys.key_blocks
+    affected_names = set()
+    _syncing_native_value_changes = True
+    try:
+        for key_name in changed_names:
+            item = get_sk_item(mesh, key_name)
+            if not item:
+                continue
+            value = current_values[key_name]
+            affected_names.update(apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr))
+
+            if item.selected:
+                for selected_item in mesh.sk_items:
+                    if selected_item.name == key_name or not selected_item.selected:
+                        continue
+                    affected_names.update(
+                        apply_value_to_shapekey(mesh, key_blocks, selected_item.name, value, mgr)
+                    )
+
+        if mgr.auto_keyframe:
+            for key_name in affected_names:
+                upsert_shape_key_keyframe(mesh.shape_keys, key_name, scene.frame_current, key_blocks[key_name].value)
+    finally:
+        _syncing_native_value_changes = False
+        _cache_native_shape_key_values(mesh)
+
+
 def get_shapekey_slider_value(self):
     mesh = self.id_data
     if not mesh or not mesh.shape_keys:
@@ -414,13 +489,19 @@ def tag_redraw_all_areas():
             area.tag_redraw()
 
 
-def sync_shapekey_ui_for_object(obj, depsgraph=None):
+def sync_shapekey_ui_for_object(obj, depsgraph=None, process_native_value_changes=True):
     if obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
         return
 
     mesh = obj.data
     check_and_sync_sk_items(mesh)
-    sync_active_item_by_name(mesh, get_current_manager())
+    mgr = get_current_manager()
+    sync_active_item_by_name(mesh, mgr)
+
+    if process_native_value_changes and mgr:
+        sync_native_shape_key_value_changes(obj, bpy.context.scene, mgr)
+    else:
+        _cache_native_shape_key_values(mesh)
 
     if depsgraph is None:
         try:
@@ -441,10 +522,14 @@ def sync_shapekey_ui_for_object(obj, depsgraph=None):
     sync_sk_item_slider_values(mesh, source_key_blocks=source_key_blocks)
 
 
-def sync_shapekey_ui_for_scene(scene, depsgraph=None):
+def sync_shapekey_ui_for_scene(scene, depsgraph=None, process_native_value_changes=True):
     for obj in scene.objects:
         try:
-            sync_shapekey_ui_for_object(obj, depsgraph=depsgraph)
+            sync_shapekey_ui_for_object(
+                obj,
+                depsgraph=depsgraph,
+                process_native_value_changes=process_native_value_changes,
+            )
         except Exception:
             pass
 
@@ -454,8 +539,7 @@ def sync_shapekey_ui_for_scene(scene, depsgraph=None):
 @bpy.app.handlers.persistent
 def shapekey_monitor_handler(scene, depsgraph):
     """
-    Depsgraph 监听器：仅负责同步列表内容和代理滑块值。
-    自动 K 帧完全由插件自己的代理滑块回调负责。
+    Depsgraph 监听器：同步列表，并处理原生形态键值的直接编辑。
     """
     if screen_is_playing():
         return
@@ -466,4 +550,6 @@ def shapekey_monitor_handler(scene, depsgraph):
 def shapekey_frame_change_handler(scene, depsgraph=None):
     if screen_is_playing():
         return
-    sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph)
+    # Frame evaluation changes values without user edits; refresh the baseline
+    # instead of treating those changes as a request to mirror or keyframe.
+    sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph, process_native_value_changes=False)

@@ -13,16 +13,22 @@ bl_info = {
 import importlib
 import bpy
 
-from . import i18n, core, properties, ui_lists, operators, presets, panel
+from . import i18n, core, frequency_presets, properties, ui_lists, operators, presets, panel
 
 # 方便开发时在 Blender 内重新加载模块。
-for _mod in (i18n, core, properties, ui_lists, operators, presets, panel):
+for _mod in (i18n, core, frequency_presets, properties, ui_lists, operators, presets, panel):
     importlib.reload(_mod)
 
 classes = [
     properties.ShapeKeyItem,
     properties.MeshShapeKeyManager,
     properties.ShapeKeyCategoryItem,
+    frequency_presets.SK_OT_sort_by_current_keyframe_frequency,
+    frequency_presets.SK_OT_create_frequency_preset,
+    frequency_presets.SK_OT_delete_frequency_preset,
+    frequency_presets.SK_OT_add_current_project_frequency,
+    frequency_presets.SK_OT_sort_by_frequency_preset,
+    frequency_presets.SK_OT_delete_frequency_project_statistics,
     ui_lists.MESH_UL_sk_categories,
     ui_lists.MESH_UL_all_shapekeys,
     ui_lists.MESH_UL_filtered_shapekeys,
@@ -46,6 +52,7 @@ classes = [
     presets.SK_OT_export_preset,
     presets.SK_OT_import_preset,
     panel.VIEW3D_PT_sk_organizer,
+    panel.VIEW3D_PT_sk_frequency_statistics,
 ]
 
 

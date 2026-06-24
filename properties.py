@@ -8,6 +8,7 @@ from .core import (
     on_all_selected_changed,
     on_auto_keyframe_toggled,
 )
+from .frequency_presets import frequency_preset_items, frequency_project_items
 
 class ShapeKeyItem(bpy.types.PropertyGroup):
     """存储在 Mesh 下的形态键元数据"""
@@ -97,6 +98,16 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
         name="Right Alias Suffix",
         description="Text added after aliases of right mirror shape keys",
         default=""
+    )
+    frequency_preset: bpy.props.EnumProperty(
+        name="Frequency Preset",
+        description="Frequency statistics preset stored in Blender's user preset directory",
+        items=frequency_preset_items
+    )
+    frequency_project: bpy.props.EnumProperty(
+        name="Saved Project Statistics",
+        description="Project statistics stored in the selected frequency preset",
+        items=frequency_project_items
     )
     auto_keyframe: bpy.props.BoolProperty(
         name="Auto Keyframe",

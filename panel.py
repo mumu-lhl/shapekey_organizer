@@ -54,6 +54,33 @@ def draw_all_shape_key_tools(box, context, obj, mgr):
     row = box.row(align=True)
     row.operator("sk_helper.clear_all_list_selection", text=_("Clear All List Selection"), icon='X')
 
+
+def draw_frequency_statistics_tools(layout, mgr):
+    row = layout.row(align=True)
+    row.prop(mgr, "frequency_preset", text=_("Frequency Preset"))
+    row.operator("sk_helper.create_frequency_preset", text="", icon='ADD')
+    row.operator("sk_helper.delete_frequency_preset", text="", icon='REMOVE')
+    row = layout.row(align=True)
+    row.operator(
+        "sk_helper.sort_by_current_keyframe_frequency",
+        text=_("Sort by Current Project Frequency"),
+        icon='SORT_DESC',
+    )
+    row.operator(
+        "sk_helper.sort_by_frequency_preset",
+        text=_("Sort by Frequency Preset"),
+        icon='SORT_DESC',
+    )
+    row = layout.row(align=True)
+    row.operator(
+        "sk_helper.add_current_project_frequency",
+        text=_("Add Current Project Statistics"),
+        icon='ADD',
+    )
+    row = layout.row(align=True)
+    row.prop(mgr, "frequency_project", text=_("Saved Project Statistics"))
+    row.operator("sk_helper.delete_frequency_project_statistics", text="", icon='REMOVE')
+
 class VIEW3D_PT_sk_organizer(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -141,3 +168,19 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
         col = box.column(align=True)
         col.prop(mgr, "auto_keyframe", text=_("Auto Keyframe"), icon='REC', toggle=True)
         col.prop(mgr, "mirror_mode", text=_("Mirror Mode"), icon='MOD_MIRROR', toggle=True)
+
+
+class VIEW3D_PT_sk_frequency_statistics(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Shape Key Classification'
+    bl_label = 'Frequency Statistics Preset'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
+
+    def draw(self, context):
+        draw_frequency_statistics_tools(self.layout, context.window_manager.sk_manager)

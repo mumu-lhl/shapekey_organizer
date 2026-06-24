@@ -94,7 +94,9 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
                 before.position = 'BEFORE'
             display_name = item.alias.strip() if item.alias.strip() else item.name
             row.label(text=display_name, icon='RESTRICT_SELECT_OFF' if index == mgr.active_item_index else 'BLANK1')
-            row.prop(item, "slider_value", text="", slider=True)
+            # Draw the real ShapeKey value so Blender can show its native
+            # keyed/animated state colors and make I-key insertion identical.
+            row.prop(kb, "value", text="", slider=True)
             if mgr.reorder_mode:
                 after = row.operator("sk_helper.move_active_shapekey_to", text="", icon='TRIA_DOWN_BAR', emboss=True)
                 after.target_name = item.name
