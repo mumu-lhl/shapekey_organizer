@@ -74,7 +74,7 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
         default=""
     )
     show_preset_tools: bpy.props.BoolProperty(
-        name="Show Preset Editing Tools",
+        name="Preset Editor",
         description="Hide Auto Match and All Shape Keys tools after presets are ready",
         default=True
     )

@@ -1,6 +1,7 @@
 import bpy
 
 from .i18n import _
+from .operators import get_all_list_target_indices, resolve_active_all_single_index
 
 
 def draw_all_shape_key_tools(box, context, obj, mgr):
@@ -23,26 +24,31 @@ def draw_all_shape_key_tools(box, context, obj, mgr):
         maxrows=20,
     )
 
-    active_index = mgr.active_all_item_index if 0 <= mgr.active_all_item_index < len(obj.data.sk_items) else -1
-    if active_index < 0 and mgr.active_all_item_name:
-        for i, item in enumerate(obj.data.sk_items):
-            if item.name == mgr.active_all_item_name:
-                active_index = i
-                break
-
-    if active_index >= 0:
-        active_item = obj.data.sk_items[active_index]
-        status = active_item.category if active_item.category.strip() else _("Unclassified")
-        box.label(text=f"{_('Single Selected All Item:')} {active_item.name}  |  {status}", icon='RESTRICT_SELECT_OFF')
+    target_indices, from_selection = get_all_list_target_indices(obj.data, mgr)
+    if target_indices:
+        if from_selection and len(target_indices) > 1:
+            box.label(text=f"{_('Checked All Items:')} {len(target_indices)}", icon='RESTRICT_SELECT_OFF')
+        else:
+            active_index = target_indices[-1]
+            active_item = obj.data.sk_items[active_index]
+            status = active_item.category if active_item.category.strip() else _("Unclassified")
+            box.label(text=f"{_('All List Target:')} {active_item.name}  |  {status}", icon='RESTRICT_SELECT_OFF')
     else:
         box.label(text=_("No all-list item selected yet"), icon='INFO')
 
-    row = box.row(align=True)
-    row.operator("sk_helper.assign_active_all_to_category", text=_("Assign Single Selected Shape Key"), icon='ADD')
-    row.operator("sk_helper.clear_active_all_category", text=_("Remove Single Selected Shape Key from Category"), icon='REMOVE')
+    active_all_index = resolve_active_all_single_index(obj.data, mgr)
+    if 0 <= active_all_index < len(obj.data.sk_items):
+        active_item = obj.data.sk_items[active_all_index]
+        detail = box.box()
+        detail.label(text=_("Original Name"), icon='INFO')
+        detail.label(text=active_item.name)
+        detail.prop(active_item, "alias", text=_("Alias"))
 
     row = box.row(align=True)
-    row.operator("sk_helper.assign_all_selected_to_category", text=_("Assign Selected from All List"), icon='ADD')
+    row.operator("sk_helper.assign_active_all_to_category", text=_("Assign"), icon='ADD')
+    row.operator("sk_helper.clear_active_all_category", text=_("Remove Category"), icon='REMOVE')
+
+    row = box.row(align=True)
     row.operator("sk_helper.assign_active_and_above_category", text=_("Assign Active and Above to Category"), icon='TRIA_UP_BAR')
 
     row = box.row(align=True)
@@ -84,7 +90,7 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
         col.operator("sk_helper.reorder_category", text="", icon='TRIA_UP').direction = 'UP'
         col.operator("sk_helper.reorder_category", text="", icon='TRIA_DOWN').direction = 'DOWN'
         row = box.row(align=True)
-        row.prop(mgr, "show_preset_tools", text=_("Preset Editing Tools"), toggle=True, icon='TOOL_SETTINGS')
+        row.prop(mgr, "show_preset_tools", text=_("Preset Editor"), toggle=True, icon='TOOL_SETTINGS')
 
         if mgr.show_preset_tools:
             row = box.row(align=True)
@@ -104,12 +110,6 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
             row.prop(mgr, "show_only_keyed", text=_("Show Only Keyed"), toggle=True, icon='DECORATE_KEYFRAME')
             row.prop(mgr, "reorder_mode", text=_("Move Mode"), toggle=True, icon='ARROW_LEFTRIGHT')
             box.template_list("MESH_UL_filtered_shapekeys", "", obj.data, "sk_items", mgr, "active_item_index")
-            if 0 <= mgr.active_item_index < len(obj.data.sk_items):
-                active_item = obj.data.sk_items[mgr.active_item_index]
-                detail = box.box()
-                detail.label(text=_("Original Name"), icon='INFO')
-                detail.label(text=active_item.name)
-                detail.prop(active_item, "alias", text=_("Alias"))
             row = box.row(align=True)
             row.label(text=_("Batch Select:"))
             op_sel = row.operator("sk_helper.select_all", text=_("Select All"))
@@ -118,9 +118,6 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
             op_desel.action = 'DESELECT'
             op_inv = row.operator("sk_helper.select_all", text=_("Invert Selection"))
             op_inv.action = 'INVERT'
-            row = box.row(align=True)
-            row.operator("sk_helper.assign_category", text=_("Move Checked Here"), icon='ADD')
-            row.operator("sk_helper.clear_category", text=_("Remove Checked"), icon='REMOVE')
             box_anim = box.box()
             box_anim.label(text=_("Animation Actions"), icon='ACTION')
             row = box_anim.row(align=True)

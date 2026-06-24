@@ -292,6 +292,21 @@ def get_all_selected_indices(items):
     return [index for index, item in enumerate(items) if item.all_selected]
 
 
+def get_all_list_target_indices(mesh, mgr):
+    """优先返回 all-list 勾选项；没有勾选时返回当前高亮单项。"""
+    if mesh is None or not hasattr(mesh, "sk_items"):
+        return [], False
+
+    selected_indices = get_all_selected_indices(mesh.sk_items)
+    if selected_indices:
+        return selected_indices, True
+
+    active_index = resolve_active_all_single_index(mesh, mgr)
+    if active_index >= 0:
+        return [active_index], False
+    return [], False
+
+
 def assign_item_to_category_safely(item, category_name):
     """只给未分类项归类；已有分类绝不覆盖。"""
     if item.category.strip():
@@ -302,8 +317,8 @@ def assign_item_to_category_safely(item, category_name):
 
 class SK_OT_assign_active_all_to_category(bpy.types.Operator):
     bl_idname = "sk_helper.assign_active_all_to_category"
-    bl_label = "Assign Single Selected Shape Key"
-    bl_description = "Assign the single selected row in All Shape Keys to the active category without overwriting existing categories"
+    bl_label = "Assign"
+    bl_description = "Assign checked shape keys in All Shape Keys to the active category. If nothing is checked, assign the active row without overwriting existing categories"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -313,7 +328,8 @@ class SK_OT_assign_active_all_to_category(bpy.types.Operator):
             return False
         active_cat = get_active_category(context)
         mgr = context.window_manager.sk_manager
-        return active_cat is not None and resolve_active_all_single_index(obj.data, mgr) >= 0
+        targets, _ = get_all_list_target_indices(obj.data, mgr)
+        return active_cat is not None and bool(targets)
 
     def execute(self, context):
         obj = context.active_object
@@ -321,26 +337,50 @@ class SK_OT_assign_active_all_to_category(bpy.types.Operator):
         active_cat = get_active_category(context)
         if active_cat is None:
             return {'CANCELLED'}
-        item_index = resolve_active_all_single_index(obj.data, mgr)
-        if item_index < 0 or item_index >= len(obj.data.sk_items):
+
+        target_indices, from_selection = get_all_list_target_indices(obj.data, mgr)
+        if not target_indices:
             return {'CANCELLED'}
 
-        item = obj.data.sk_items[item_index]
-        set_active_all_item_safely(mgr, obj.data, item_index)
-        mgr.all_select_anchor_index = item_index
-        mgr.all_select_anchor_name = item.name
-        if assign_item_to_category_safely(item, active_cat.name):
-            item.all_selected = False
-            self.report({'INFO'}, f"Moved single selected shape key '{item.name}' to category '{active_cat.name}'")
+        moved = 0
+        skipped = 0
+        last_target_index = target_indices[-1]
+        target_names = []
+        for item_index in target_indices:
+            if item_index < 0 or item_index >= len(obj.data.sk_items):
+                continue
+            item = obj.data.sk_items[item_index]
+            target_names.append(item.name)
+            if assign_item_to_category_safely(item, active_cat.name):
+                moved += 1
+            else:
+                skipped += 1
+
+        if from_selection:
+            set_all_selection_indices(obj.data.sk_items, set())
+
+        if 0 <= last_target_index < len(obj.data.sk_items):
+            item = obj.data.sk_items[last_target_index]
+            set_active_all_item_safely(mgr, obj.data, last_target_index)
+            mgr.all_select_anchor_index = last_target_index
+            mgr.all_select_anchor_name = item.name
+
+        if moved == 0:
+            if target_names:
+                self.report({'INFO'}, f"No changes. Shape key '{target_names[-1]}' is already classified as '{obj.data.sk_items[last_target_index].category}'.")
+            else:
+                self.report({'INFO'}, "No valid shape keys selected.")
+        elif len(target_names) == 1:
+            self.report({'INFO'}, f"Moved shape key '{target_names[0]}' to category '{active_cat.name}'.")
         else:
-            self.report({'INFO'}, f"No changes. Shape key '{item.name}' is already classified as '{item.category}'.")
+            self.report({'INFO'}, f"Moved {moved} shape keys to category '{active_cat.name}'. Skipped {skipped} already-classified shape keys.")
         return {'FINISHED'}
 
 
 class SK_OT_clear_active_all_category(bpy.types.Operator):
     bl_idname = "sk_helper.clear_active_all_category"
-    bl_label = "Remove Single Selected Shape Key from Category"
-    bl_description = "Remove the single selected row in All Shape Keys from its current category"
+    bl_label = "Remove Category"
+    bl_description = "Remove checked shape keys in All Shape Keys from their current categories. If nothing is checked, remove the active row from its current category"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -349,28 +389,50 @@ class SK_OT_clear_active_all_category(bpy.types.Operator):
         if not obj or obj.type != 'MESH' or not hasattr(obj.data, "sk_items"):
             return False
         mgr = context.window_manager.sk_manager
-        return resolve_active_all_single_index(obj.data, mgr) >= 0
+        targets, _ = get_all_list_target_indices(obj.data, mgr)
+        return bool(targets)
 
     def execute(self, context):
         obj = context.active_object
         mgr = context.window_manager.sk_manager
-        item_index = resolve_active_all_single_index(obj.data, mgr)
-        if item_index < 0 or item_index >= len(obj.data.sk_items):
+        target_indices, from_selection = get_all_list_target_indices(obj.data, mgr)
+        if not target_indices:
             return {'CANCELLED'}
 
-        item = obj.data.sk_items[item_index]
-        old_category = item.category
-        set_active_all_item_safely(mgr, obj.data, item_index)
-        mgr.all_select_anchor_index = item_index
-        mgr.all_select_anchor_name = item.name
+        removed = 0
+        skipped = 0
+        last_target_index = target_indices[-1]
+        target_names = []
+        for item_index in target_indices:
+            if item_index < 0 or item_index >= len(obj.data.sk_items):
+                continue
+            item = obj.data.sk_items[item_index]
+            target_names.append(item.name)
+            old_category = item.category
+            if not old_category.strip():
+                skipped += 1
+                continue
+            item.category = ""
+            removed += 1
 
-        if not old_category.strip():
-            self.report({'INFO'}, f"No changes. Shape key '{item.name}' is already unclassified.")
-            return {'FINISHED'}
+        if from_selection:
+            set_all_selection_indices(obj.data.sk_items, set())
 
-        item.category = ""
-        item.all_selected = False
-        self.report({'INFO'}, f"Removed single selected shape key '{item.name}' from category '{old_category}'.")
+        if 0 <= last_target_index < len(obj.data.sk_items):
+            item = obj.data.sk_items[last_target_index]
+            set_active_all_item_safely(mgr, obj.data, last_target_index)
+            mgr.all_select_anchor_index = last_target_index
+            mgr.all_select_anchor_name = item.name
+
+        if removed == 0:
+            if target_names:
+                self.report({'INFO'}, f"No changes. Shape key '{target_names[-1]}' is already unclassified.")
+            else:
+                self.report({'INFO'}, "No valid shape keys selected.")
+        elif len(target_names) == 1:
+            self.report({'INFO'}, f"Removed shape key '{target_names[0]}' from its category.")
+        else:
+            self.report({'INFO'}, f"Removed {removed} shape keys from their categories. Skipped {skipped} already-unclassified shape keys.")
         return {'FINISHED'}
 
 
@@ -463,48 +525,6 @@ class SK_OT_select_active_all_item_only(bpy.types.Operator):
         mgr.all_select_anchor_name = obj.data.sk_items[item_index].name
         return {'FINISHED'}
 
-
-
-class SK_OT_assign_all_selected_to_category(bpy.types.Operator):
-    bl_idname = "sk_helper.assign_all_selected_to_category"
-    bl_label = "Assign Selected from All List"
-    bl_description = "Assign checked shape keys from the All Shape Keys list to the active category without overwriting existing categories"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        if not obj or obj.type != 'MESH' or not hasattr(obj.data, "sk_items"):
-            return False
-        active_cat = get_active_category(context)
-        return active_cat is not None and any(item.all_selected for item in obj.data.sk_items)
-
-    def execute(self, context):
-        obj = context.active_object
-        mgr = context.window_manager.sk_manager
-        active_cat = get_active_category(context)
-        if active_cat is None:
-            return {'CANCELLED'}
-
-        moved = 0
-        skipped = 0
-        selected_indices = get_all_selected_indices(obj.data.sk_items)
-        last_selected_index = selected_indices[-1] if selected_indices else -1
-        for index in selected_indices:
-            item = obj.data.sk_items[index]
-            if assign_item_to_category_safely(item, active_cat.name):
-                moved += 1
-            else:
-                skipped += 1
-        set_all_selection_indices(obj.data.sk_items, set())
-
-        if last_selected_index >= 0:
-            set_active_all_item_safely(mgr, obj.data, last_selected_index)
-            mgr.all_select_anchor_index = last_selected_index
-            mgr.all_select_anchor_name = obj.data.sk_items[last_selected_index].name
-
-        self.report({'INFO'}, f"Moved {moved} selected shape keys to category '{active_cat.name}'. Skipped {skipped} already-classified shape keys.")
-        return {'FINISHED'}
 
 
 class SK_OT_clear_all_list_selection(bpy.types.Operator):

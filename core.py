@@ -369,7 +369,7 @@ def on_active_all_item_index_changed(self, context):
     现在允许“只单击列表行、不点复选框”也作为插件的当前目标。
     注意：这个值来自 Blender UIList 的 active 行。用户已确认暂时接受滚动后
     active 行偶发滞后的问题，所以这里恢复同步 active_all_item_name，
-    让“归类单选中的形态键 / 移除单选中的形态键分类”等按钮可用。
+    让“智能归类 / 智能移除分类”等按钮可用。
 
     复选框多选仍然只写 item.all_selected，不会同步到当前分类/K帧列表的 item.selected。
     """

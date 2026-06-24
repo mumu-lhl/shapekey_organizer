@@ -35,7 +35,6 @@ classes = [
     operators.SK_OT_assign_category,
     operators.SK_OT_assign_active_all_to_category,
     operators.SK_OT_clear_active_all_category,
-    operators.SK_OT_assign_all_selected_to_category,
     operators.SK_OT_clear_all_list_selection,
     operators.SK_OT_assign_active_and_above_category,
     operators.SK_OT_clear_category,
