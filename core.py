@@ -73,28 +73,73 @@ def cleanup_slider_value_fcurves(mesh):
             action.fcurves.remove(fcurve)
 
 
-def get_keyframe_value_on_current_frame(key_block_parent, key_name, frame):
-    if not key_block_parent.animation_data or not key_block_parent.animation_data.action:
-        return None
-    action = key_block_parent.animation_data.action
-    data_path = f'key_blocks["{key_name}"].value'
-    for fcurve in action.fcurves:
-        if fcurve.data_path != data_path:
-            continue
-        for kp in fcurve.keyframe_points:
-            if abs(kp.co[0] - frame) < 0.01:
-                return kp.co[1]
-        break
-    return None
+_action_keyframes_cache = {}
+_frame_keyframe_cache = {}
 
+def clear_keyframe_caches():
+    _action_keyframes_cache.clear()
+    _frame_keyframe_cache.clear()
+
+def get_action_keyframes(action):
+    if not action:
+        return set()
+    action_ptr = action.as_pointer()
+    if action_ptr in _action_keyframes_cache:
+        return _action_keyframes_cache[action_ptr]
+        
+    any_keyframes = set()
+    for fcurve in action.fcurves:
+        if len(fcurve.keyframe_points) == 0:
+            continue
+        dp = fcurve.data_path
+        if dp.startswith('key_blocks["') and dp.endswith('"].value'):
+            parts = dp.split('"')
+            if len(parts) >= 2:
+                any_keyframes.add(parts[1])
+                
+    _action_keyframes_cache[action_ptr] = any_keyframes
+    return any_keyframes
+
+def get_frame_keyframe_values(action, frame):
+    if not action:
+        return {}
+    action_ptr = action.as_pointer()
+    frame_key = round(frame, 2)
+    cache_key = (action_ptr, frame_key)
+    
+    if cache_key in _frame_keyframe_cache:
+        return _frame_keyframe_cache[cache_key]
+        
+    keyed_on_frame = {}
+    for fcurve in action.fcurves:
+        dp = fcurve.data_path
+        if dp.startswith('key_blocks["') and dp.endswith('"].value'):
+            parts = dp.split('"')
+            if len(parts) >= 2:
+                name = parts[1]
+                for kp in fcurve.keyframe_points:
+                    if abs(kp.co[0] - frame) < 0.01:
+                        keyed_on_frame[name] = kp.co[1]
+                        break
+                        
+    _frame_keyframe_cache[cache_key] = keyed_on_frame
+    return keyed_on_frame
+
+def get_keyed_shape_key_names(key_block_parent):
+    if not key_block_parent or not key_block_parent.animation_data or not key_block_parent.animation_data.action:
+        return set()
+    return get_action_keyframes(key_block_parent.animation_data.action)
+
+def get_keyframe_value_on_current_frame(key_block_parent, key_name, frame):
+    if not key_block_parent or not key_block_parent.animation_data or not key_block_parent.animation_data.action:
+        return None
+    values = get_frame_keyframe_values(key_block_parent.animation_data.action, frame)
+    return values.get(key_name)
 
 def has_any_keyframes(key_block_parent, key_name):
-    if not key_block_parent.animation_data or not key_block_parent.animation_data.action:
+    if not key_block_parent or not key_block_parent.animation_data or not key_block_parent.animation_data.action:
         return False
-    action = key_block_parent.animation_data.action
-    data_path = f'key_blocks["{key_name}"].value'
-    return any(fcurve.data_path == data_path and len(fcurve.keyframe_points) > 0 for fcurve in action.fcurves)
-
+    return key_name in get_action_keyframes(key_block_parent.animation_data.action)
 
 def get_visible_category_item_indices(obj, mgr):
     categories = obj.data.sk_categories
@@ -103,10 +148,11 @@ def get_visible_category_item_indices(obj, mgr):
 
     active_cat = categories[mgr.active_category_index]
     result = []
+    keyed_names = get_keyed_shape_key_names(obj.data.shape_keys) if mgr.show_only_keyed else None
     for index, item in enumerate(obj.data.sk_items):
         if item.category != active_cat.name:
             continue
-        if mgr.show_only_keyed and not has_any_keyframes(obj.data.shape_keys, item.name):
+        if mgr.show_only_keyed and (not keyed_names or item.name not in keyed_names):
             continue
         result.append(index)
     return result
@@ -216,11 +262,12 @@ def check_and_sync_sk_items(mesh):
     if not mesh.shape_keys:
         if len(mesh.sk_items) > 0:
             mesh.sk_items.clear()
-        return
-    cleanup_slider_value_fcurves(mesh)
+            return True
+        return False
     kb_names = [kb.name for kb in mesh.shape_keys.key_blocks if kb.name != "Basis"]
     item_names = [item.name for item in mesh.sk_items]
     if kb_names != item_names:
+        cleanup_slider_value_fcurves(mesh)
         alias_cache = {item.name: item.alias for item in mesh.sk_items}
         cat_cache = {item.name: item.category for item in mesh.sk_items}
         sel_cache = {item.name: item.selected for item in mesh.sk_items}
@@ -236,7 +283,9 @@ def check_and_sync_sk_items(mesh):
             item.category = cat_cache.get(name, "")
             item.selected = sel_cache.get(name, False)
             item.all_selected = all_sel_cache.get(name, False)
-    sync_sk_item_slider_values(mesh)
+        sync_sk_item_slider_values(mesh)
+        return True
+    return False
 
 
 def apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr):
@@ -297,7 +346,7 @@ def sync_native_shape_key_value_changes(obj, mgr):
 
     mesh = obj.data
     if not mesh.shape_keys:
-        return
+        return False
 
     cache_key = mesh.as_pointer()
     current_values = {
@@ -311,17 +360,18 @@ def sync_native_shape_key_value_changes(obj, mgr):
     # The first observation establishes a baseline. Only direct changes on the
     # active mesh are treated as UI edits; other meshes may update via evaluation.
     if _syncing_native_value_changes or previous_values is None or bpy.context.active_object != obj:
-        return
+        return False
 
     changed_names = [
         name for name, value in current_values.items()
         if name in previous_values and abs(value - previous_values[name]) > 0.000001
     ]
     if not changed_names:
-        return
+        return False
 
     key_blocks = mesh.shape_keys.key_blocks
     _syncing_native_value_changes = True
+    synced = False
     try:
         for key_name in changed_names:
             item = get_sk_item(mesh, key_name)
@@ -329,12 +379,14 @@ def sync_native_shape_key_value_changes(obj, mgr):
                 continue
             value = current_values[key_name]
             apply_value_to_shapekey(mesh, key_blocks, key_name, value, mgr)
+            synced = True
 
             if item.selected:
                 for selected_item in mesh.sk_items:
                     if selected_item.name == key_name or not selected_item.selected:
                         continue
                     apply_value_to_shapekey(mesh, key_blocks, selected_item.name, value, mgr)
+                    synced = True
 
         # Do not keyframe from this depsgraph callback. It would become a
         # separate undo step from the native ShapeKey.value drag. Blender's
@@ -343,6 +395,7 @@ def sync_native_shape_key_value_changes(obj, mgr):
     finally:
         _syncing_native_value_changes = False
         _cache_native_shape_key_values(mesh)
+    return synced
 
 
 def get_shapekey_slider_value(self):
@@ -492,49 +545,43 @@ def tag_redraw_all_areas():
 
 def sync_shapekey_ui_for_object(obj, depsgraph=None, process_native_value_changes=True):
     if obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
-        return
+        return False
 
     mesh = obj.data
-    check_and_sync_sk_items(mesh)
+    items_changed = check_and_sync_sk_items(mesh)
     mgr = get_current_manager()
-    sync_active_item_by_name(mesh, mgr)
+    if not mgr:
+        return items_changed
 
-    if process_native_value_changes and mgr:
-        sync_native_shape_key_value_changes(obj, mgr)
+    old_active_item_index = mgr.active_item_index
+    sync_active_item_by_name(mesh, mgr)
+    active_changed = (mgr.active_item_index != old_active_item_index)
+
+    values_changed = False
+    if process_native_value_changes:
+        values_changed = sync_native_shape_key_value_changes(obj, mgr)
     else:
         _cache_native_shape_key_values(mesh)
 
-    if depsgraph is None:
-        try:
-            depsgraph = bpy.context.evaluated_depsgraph_get()
-        except Exception:
-            depsgraph = None
-
-    source_key_blocks = mesh.shape_keys.key_blocks
-    if depsgraph is not None:
-        try:
-            eval_obj = obj.evaluated_get(depsgraph)
-            eval_shape_keys = eval_obj.data.shape_keys if eval_obj and eval_obj.data else None
-            if eval_shape_keys:
-                source_key_blocks = eval_shape_keys.key_blocks
-        except Exception:
-            pass
-
-    sync_sk_item_slider_values(mesh, source_key_blocks=source_key_blocks)
+    return items_changed or active_changed or values_changed
 
 
 def sync_shapekey_ui_for_scene(scene, depsgraph=None, process_native_value_changes=True):
-    for obj in scene.objects:
-        try:
-            sync_shapekey_ui_for_object(
-                obj,
-                depsgraph=depsgraph,
-                process_native_value_changes=process_native_value_changes,
-            )
-        except Exception:
-            pass
+    context = bpy.context
+    obj = context.active_object
+    if not obj or obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
+        return
 
-    tag_redraw_all_areas()
+    try:
+        changed = sync_shapekey_ui_for_object(
+            obj,
+            depsgraph=depsgraph,
+            process_native_value_changes=process_native_value_changes,
+        )
+        if changed:
+            tag_redraw_all_areas()
+    except Exception:
+        pass
 
 
 @bpy.app.handlers.persistent
@@ -544,6 +591,7 @@ def shapekey_monitor_handler(scene, depsgraph):
     """
     if screen_is_playing():
         return
+    clear_keyframe_caches()
     sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph)
 
 
@@ -551,6 +599,7 @@ def shapekey_monitor_handler(scene, depsgraph):
 def shapekey_frame_change_handler(scene, depsgraph=None):
     if screen_is_playing():
         return
+    clear_keyframe_caches()
     # Frame evaluation changes values without user edits; refresh the baseline
     # instead of treating those changes as a request to mirror or keyframe.
     sync_shapekey_ui_for_scene(scene, depsgraph=depsgraph, process_native_value_changes=False)

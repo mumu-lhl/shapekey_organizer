@@ -1,7 +1,7 @@
 import bpy
 
 from .i18n import _
-from .core import get_visible_category_item_indices, has_any_keyframes, get_keyframe_button_icon
+from .core import get_visible_category_item_indices, has_any_keyframes, get_keyframe_button_icon, get_keyed_shape_key_names
 
 class MESH_UL_sk_categories(bpy.types.UIList):
     """分类管理列表"""
@@ -124,6 +124,7 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
         active_cat = categories[mgr.active_category_index]
         cat_name = active_cat.name
         search_text = mgr.search_text.strip().lower()
+        keyed_names = get_keyed_shape_key_names(obj.data.shape_keys) if mgr.show_only_keyed else None
         for i, item in enumerate(items):
             if item.category != cat_name:
                 filter_flags[i] &= ~self.bitflag_filter_item
@@ -132,6 +133,6 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
             if search_text and search_text not in item.name.lower() and search_text not in alias_text:
                 filter_flags[i] &= ~self.bitflag_filter_item
                 continue
-            if mgr.show_only_keyed and not has_any_keyframes(obj.data.shape_keys, item.name):
+            if mgr.show_only_keyed and (not keyed_names or item.name not in keyed_names):
                 filter_flags[i] &= ~self.bitflag_filter_item
         return filter_flags, filter_order
