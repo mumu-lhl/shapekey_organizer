@@ -3,6 +3,7 @@ import json
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from .core import match_pattern, check_and_sync_sk_items, reorder_sk_items_from_preset
+from .i18n import _
 
 class SK_OT_export_preset(bpy.types.Operator, ExportHelper):
     bl_idname = "sk_helper.export_preset"
@@ -37,9 +38,9 @@ class SK_OT_export_preset(bpy.types.Operator, ExportHelper):
         try:
             with open(self.filepath, 'w', encoding='utf-8') as f:
                 json.dump(preset_data, f, indent=4, ensure_ascii=False)
-            self.report({'INFO'}, f"Preset successfully exported to {self.filepath}")
+            self.report({'INFO'}, _("Preset successfully exported to {}").format(self.filepath))
         except Exception as e:
-            self.report({'ERROR'}, f"Failed to export preset: {str(e)}")
+            self.report({'ERROR'}, _("Failed to export preset: {}").format(e))
             return {'CANCELLED'}
         return {'FINISHED'}
 
@@ -59,7 +60,7 @@ class SK_OT_import_preset(bpy.types.Operator, ImportHelper):
             with open(self.filepath, 'r', encoding='utf-8') as f:
                 preset_data = json.load(f)
         except Exception as e:
-            self.report({'ERROR'}, f"Failed to read preset file: {str(e)}")
+            self.report({'ERROR'}, _("Failed to read preset file: {}").format(e))
             return {'CANCELLED'}
         obj.data.sk_categories.clear()
         check_and_sync_sk_items(obj.data)
@@ -69,7 +70,7 @@ class SK_OT_import_preset(bpy.types.Operator, ImportHelper):
         key_aliases = preset_data.get("key_aliases", {})
         for cat_data in categories_data:
             cat = obj.data.sk_categories.add()
-            cat.name = cat_data.get("name", "New Category")
+            cat.name = cat_data.get("name", _("New Category"))
             cat.match_pattern = cat_data.get("match_pattern", "")
             for key_name in cat_data.get("assigned_keys", []):
                 for item in obj.data.sk_items:
@@ -85,5 +86,5 @@ class SK_OT_import_preset(bpy.types.Operator, ImportHelper):
         for item in obj.data.sk_items:
             item.alias = key_aliases.get(item.name, "")
         context.window_manager.sk_manager.active_category_index = 0
-        self.report({'INFO'}, f"Imported {len(categories_data)} categories successfully.")
+        self.report({'INFO'}, _("Imported {} categories successfully.").format(len(categories_data)))
         return {'FINISHED'}

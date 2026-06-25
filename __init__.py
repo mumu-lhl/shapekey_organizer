@@ -3,7 +3,7 @@ bl_info = {
     "author": "Mumulhl",
     "version": (1, 0, 0),
     "blender": (5, 1, 0),
-    "location": "View3D > N-Panel > 形态键分类",
+    "location": "View3D > N-Panel > Shape Key Classification",
     "description": "形态键分类、滚动式预设编辑、复选框多选归类、镜像K帧、自动K帧、通配符批量匹配以及预设导出/应用",
     "warning": "",
     "doc_url": "",
@@ -70,6 +70,11 @@ def register():
         bpy.app.translations.register(__name__, i18n.translations_dict)
     except Exception as e:
         print(f"Translations register error: {e}")
+
+    addon_info = globals().get("bl_info")
+    if isinstance(addon_info, dict):
+        i18n.localize_addon_info(addon_info)
+    i18n.localize_class_attributes(classes)
 
     for cls in classes:
         try:

@@ -20,9 +20,9 @@ def _alias_without_side_markers(alias, prefix, suffix):
 
 
 class SK_OT_sync_mirror_aliases(bpy.types.Operator):
-    """Create matching aliases for recognized left/right shape key pairs."""
     bl_idname = "sk_helper.sync_mirror_aliases"
     bl_label = "Sync Mirror Aliases"
+    bl_description = "Create matching aliases for recognized left/right shape key pairs"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -62,9 +62,9 @@ class SK_OT_sync_mirror_aliases(bpy.types.Operator):
             synced_pairs += 1
 
         if synced_pairs:
-            self.report({'INFO'}, f"Synchronized aliases for {synced_pairs} mirror pair(s)")
+            self.report({'INFO'}, _("Synchronized aliases for {} mirror pair(s)").format(synced_pairs))
         else:
-            self.report({'INFO'}, "No mirrored shape key pairs with aliases found")
+            self.report({'INFO'}, _("No mirrored shape key pairs with aliases found"))
         return {'FINISHED'}
 
 class SK_OT_add_category(bpy.types.Operator):
@@ -75,7 +75,7 @@ class SK_OT_add_category(bpy.types.Operator):
     def execute(self, context):
         obj = context.active_object
         cat = obj.data.sk_categories.add()
-        cat.name = f"New Category {len(obj.data.sk_categories)}"
+        cat.name = _("New Category {}").format(len(obj.data.sk_categories))
         context.window_manager.sk_manager.active_category_index = len(obj.data.sk_categories) - 1
         return {'FINISHED'}
 
@@ -244,7 +244,7 @@ class SK_OT_auto_match(bpy.types.Operator):
         check_and_sync_sk_items(obj.data)
         categories = obj.data.sk_categories
         if not categories:
-            self.report({'WARNING'}, "No categories defined")
+            self.report({'WARNING'}, _("No categories defined"))
             return {'CANCELLED'}
         sk_items = obj.data.sk_items
         mgr = context.window_manager.sk_manager
@@ -263,7 +263,7 @@ class SK_OT_auto_match(bpy.types.Operator):
                 if match_pattern(item.name, pattern):
                     item.category = cat.name
                     matched_count += 1
-        self.report({'INFO'}, f"Successfully classified {matched_count} shape keys.")
+        self.report({'INFO'}, _("Successfully classified {} shape keys.").format(matched_count))
         return {'FINISHED'}
 
 class SK_OT_assign_category(bpy.types.Operator):
@@ -284,7 +284,7 @@ class SK_OT_assign_category(bpy.types.Operator):
                 item.category = active_cat.name
                 item.selected = False
                 count += 1
-        self.report({'INFO'}, f"Moved {count} shape keys to category '{active_cat.name}'")
+        self.report({'INFO'}, _("Moved {} shape keys to category '{}'").format(count, active_cat.name))
         return {'FINISHED'}
 
 
@@ -425,13 +425,17 @@ class SK_OT_assign_active_all_to_category(bpy.types.Operator):
 
         if moved == 0:
             if target_names:
-                self.report({'INFO'}, f"No changes. Shape key '{target_names[-1]}' is already classified as '{obj.data.sk_items[last_target_index].category}'.")
+                self.report({'INFO'}, _("No changes. Shape key '{}' is already classified as '{}'.").format(
+                    target_names[-1], obj.data.sk_items[last_target_index].category
+                ))
             else:
-                self.report({'INFO'}, "No valid shape keys selected.")
+                self.report({'INFO'}, _("No valid shape keys selected."))
         elif len(target_names) == 1:
-            self.report({'INFO'}, f"Moved shape key '{target_names[0]}' to category '{active_cat.name}'.")
+            self.report({'INFO'}, _("Moved shape key '{}' to category '{}'.").format(target_names[0], active_cat.name))
         else:
-            self.report({'INFO'}, f"Moved {moved} shape keys to category '{active_cat.name}'. Skipped {skipped} already-classified shape keys.")
+            self.report({'INFO'}, _("Moved {} shape keys to category '{}'. Skipped {} already-classified shape keys.").format(
+                moved, active_cat.name, skipped
+            ))
         return {'FINISHED'}
 
 
@@ -484,13 +488,15 @@ class SK_OT_clear_active_all_category(bpy.types.Operator):
 
         if removed == 0:
             if target_names:
-                self.report({'INFO'}, f"No changes. Shape key '{target_names[-1]}' is already unclassified.")
+                self.report({'INFO'}, _("No changes. Shape key '{}' is already unclassified.").format(target_names[-1]))
             else:
-                self.report({'INFO'}, "No valid shape keys selected.")
+                self.report({'INFO'}, _("No valid shape keys selected."))
         elif len(target_names) == 1:
-            self.report({'INFO'}, f"Removed shape key '{target_names[0]}' from its category.")
+            self.report({'INFO'}, _("Removed shape key '{}' from its category.").format(target_names[0]))
         else:
-            self.report({'INFO'}, f"Removed {removed} shape keys from their categories. Skipped {skipped} already-unclassified shape keys.")
+            self.report({'INFO'}, _("Removed {} shape keys from their categories. Skipped {} already-unclassified shape keys.").format(
+                removed, skipped
+            ))
         return {'FINISHED'}
 
 
@@ -517,7 +523,7 @@ class SK_OT_set_all_list_anchor_to_active(bpy.types.Operator):
         set_active_all_item_safely(mgr, obj.data, item_index)
         mgr.all_select_anchor_index = item_index
         mgr.all_select_anchor_name = obj.data.sk_items[item_index].name
-        self.report({'INFO'}, f"Range anchor set to '{obj.data.sk_items[item_index].name}'.")
+        self.report({'INFO'}, _("Range anchor set to '{}'.").format(obj.data.sk_items[item_index].name))
         return {'FINISHED'}
 
 
@@ -553,7 +559,7 @@ class SK_OT_select_all_range_to_active(bpy.types.Operator):
             selected.update(get_all_selected_indices(items))
         set_all_selection_indices(items, selected)
         set_active_all_item_safely(mgr, obj.data, active_index)
-        self.report({'INFO'}, f"Selected {end - start + 1} shape keys from range anchor to active row.")
+        self.report({'INFO'}, _("Selected {} shape keys from range anchor to active row.").format(end - start + 1))
         return {'FINISHED'}
 
 
@@ -601,7 +607,7 @@ class SK_OT_clear_all_list_selection(bpy.types.Operator):
         set_all_selection_indices(obj.data.sk_items, set())
         mgr.all_select_anchor_index = -1
         mgr.all_select_anchor_name = ""
-        self.report({'INFO'}, "Cleared All Shape Keys selection.")
+        self.report({'INFO'}, _("Cleared All Shape Keys selection."))
         return {'FINISHED'}
 
 
@@ -649,13 +655,18 @@ class SK_OT_assign_active_and_above_category(bpy.types.Operator):
 
         if assigned_count == 0:
             if boundary_name:
-                self.report({'INFO'}, f"No changes. Active or upper boundary shape key '{boundary_name}' is already classified.")
+                self.report({'INFO'}, _("No changes. Active or upper boundary shape key '{}' is already classified.").format(boundary_name))
             else:
-                self.report({'INFO'}, "No unclassified shape keys found.")
+                self.report({'INFO'}, _("No unclassified shape keys found."))
         else:
-            message = f"Moved {assigned_count} continuous unclassified shape keys to category '{active_cat.name}'"
             if boundary_name:
-                message += f"; stopped before already-classified shape key '{boundary_name}'"
+                message = _("Moved {} continuous unclassified shape keys to category '{}'; stopped before already-classified shape key '{}'").format(
+                    assigned_count, active_cat.name, boundary_name
+                )
+            else:
+                message = _("Moved {} continuous unclassified shape keys to category '{}'").format(
+                    assigned_count, active_cat.name
+                )
             self.report({'INFO'}, message)
         return {'FINISHED'}
 
@@ -672,7 +683,7 @@ class SK_OT_clear_category(bpy.types.Operator):
                 item.category = ""
                 item.selected = False
                 count += 1
-        self.report({'INFO'}, f"Removed {count} shape keys from category.")
+        self.report({'INFO'}, _("Removed {} shape keys from category.").format(count))
         return {'FINISHED'}
 
 class SK_OT_keyframe_single(bpy.types.Operator):
@@ -752,7 +763,7 @@ class SK_OT_keyframe_batch(bpy.types.Operator):
                             data_path=f'key_blocks["{m_name}"].value',
                             frame=frame
                         )
-        self.report({'INFO'}, f"Keyframed {count} shape keys.")
+        self.report({'INFO'}, _("Keyframed {} shape keys.").format(count))
         return {'FINISHED'}
 
 class SK_OT_select_all(bpy.types.Operator):

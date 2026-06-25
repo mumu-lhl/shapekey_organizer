@@ -5,6 +5,7 @@ import hashlib
 import bpy
 
 from .core import check_and_sync_sk_items, reorder_sk_items_by_names
+from .i18n import _
 
 
 PRESET_RELATIVE_DIR = "presets/shapekey_organizer_frequency"
@@ -62,11 +63,11 @@ def frequency_preset_items(self, context):
     names = _available_preset_names()
     if not names:
         _frequency_preset_enum_items = [
-            (EMPTY_ENUM_VALUE, "No Frequency Presets", "Create a frequency statistics preset first")
+            (EMPTY_ENUM_VALUE, _("No Frequency Presets"), _("Create a frequency statistics preset first"))
         ]
     else:
         _frequency_preset_enum_items = [
-            (_preset_enum_identifier(name), name, f"Frequency statistics preset: {name}")
+            (_preset_enum_identifier(name), name, _("Frequency statistics preset: {}").format(name))
             for name in names
         ]
     return _retain_enum_items(_frequency_preset_enum_items)
@@ -76,7 +77,7 @@ def _read_preset(preset_name):
     with open(_preset_path(preset_name), 'r', encoding='utf-8') as file:
         data = json.load(file)
     if not isinstance(data, dict) or not isinstance(data.get("projects", {}), dict):
-        raise ValueError("Invalid frequency statistics preset")
+        raise ValueError(_("Invalid frequency statistics preset"))
     return data
 
 
@@ -194,7 +195,7 @@ def frequency_project_items(self, context):
     preset_name = _selected_preset_name(getattr(self, "frequency_preset", ""))
     if not preset_name:
         _frequency_project_enum_items = [
-            (EMPTY_ENUM_VALUE, "No Project Statistics", "Select a frequency statistics preset first")
+            (EMPTY_ENUM_VALUE, _("No Project Statistics"), _("Select a frequency statistics preset first"))
         ]
         return _retain_enum_items(_frequency_project_enum_items)
     try:
@@ -203,7 +204,7 @@ def frequency_project_items(self, context):
         projects = {}
     if not projects:
         _frequency_project_enum_items = [
-            (EMPTY_ENUM_VALUE, "No Project Statistics", "This preset does not contain project statistics")
+            (EMPTY_ENUM_VALUE, _("No Project Statistics"), _("This preset does not contain project statistics"))
         ]
         return _retain_enum_items(_frequency_project_enum_items)
     _frequency_project_enum_items = [
@@ -217,7 +218,7 @@ def frequency_project_items(self, context):
     ]
     if not _frequency_project_enum_items:
         _frequency_project_enum_items = [
-            (EMPTY_ENUM_VALUE, "No Project Statistics", "This preset does not contain valid project statistics")
+            (EMPTY_ENUM_VALUE, _("No Project Statistics"), _("This preset does not contain valid project statistics"))
         ]
     return _retain_enum_items(_frequency_project_enum_items)
 
@@ -238,7 +239,7 @@ class SK_OT_sort_by_current_keyframe_frequency(bpy.types.Operator):
         mesh = context.active_object.data
         check_and_sync_sk_items(mesh)
         matched_count = _sort_mesh_by_counts(mesh, count_mesh_keyframes(mesh))
-        self.report({'INFO'}, f"Sorted all categorized shape keys using {matched_count} non-zero current-project frequencies")
+        self.report({'INFO'}, _("Sorted all categorized shape keys using {} non-zero current-project frequencies").format(matched_count))
         return {'FINISHED'}
 
 
@@ -250,19 +251,20 @@ class SK_OT_create_frequency_preset(bpy.types.Operator):
     preset_name: bpy.props.StringProperty(name="Preset Name", default="Frequency Statistics")
 
     def invoke(self, context, event):
+        self.preset_name = _("Frequency Statistics")
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         preset_name = os.path.splitext(os.path.basename(self.preset_name.strip()))[0]
         if not preset_name or preset_name in {'.', '..', EMPTY_ENUM_VALUE}:
-            self.report({'ERROR'}, "Enter a valid preset name")
+            self.report({'ERROR'}, _("Enter a valid preset name"))
             return {'CANCELLED'}
         if preset_name in _available_preset_names():
-            self.report({'ERROR'}, "A frequency preset with this name already exists")
+            self.report({'ERROR'}, _("A frequency preset with this name already exists"))
             return {'CANCELLED'}
         _write_preset(preset_name, {"preset_version": PRESET_VERSION, "projects": {}})
         context.window_manager.sk_manager.frequency_preset = _preset_enum_identifier(preset_name)
-        self.report({'INFO'}, f"Created frequency preset '{preset_name}'")
+        self.report({'INFO'}, _("Created frequency preset '{}'").format(preset_name))
         return {'FINISHED'}
 
 
@@ -277,18 +279,18 @@ class SK_OT_delete_frequency_preset(bpy.types.Operator):
     def execute(self, context):
         preset_name = _selected_preset_name(context.window_manager.sk_manager.frequency_preset)
         if preset_name not in _available_preset_names():
-            self.report({'ERROR'}, "Select an existing frequency preset")
+            self.report({'ERROR'}, _("Select an existing frequency preset"))
             return {'CANCELLED'}
         try:
             os.remove(_preset_path(preset_name))
         except OSError as error:
-            self.report({'ERROR'}, f"Failed to delete frequency preset: {error}")
+            self.report({'ERROR'}, _("Failed to delete frequency preset: {}").format(error))
             return {'CANCELLED'}
         remaining_names = _available_preset_names()
         context.window_manager.sk_manager.frequency_preset = (
             _preset_enum_identifier(remaining_names[0]) if remaining_names else EMPTY_ENUM_VALUE
         )
-        self.report({'INFO'}, f"Deleted frequency preset '{preset_name}'")
+        self.report({'INFO'}, _("Deleted frequency preset '{}'").format(preset_name))
         return {'FINISHED'}
 
 
@@ -300,11 +302,11 @@ class SK_OT_add_current_project_frequency(bpy.types.Operator):
     def execute(self, context):
         preset_name = _selected_preset_name(context.window_manager.sk_manager.frequency_preset)
         if preset_name not in _available_preset_names():
-            self.report({'ERROR'}, "Select an existing frequency preset")
+            self.report({'ERROR'}, _("Select an existing frequency preset"))
             return {'CANCELLED'}
         project_id = _current_project_id()
         if not project_id:
-            self.report({'ERROR'}, "Save the Blender file before adding project statistics")
+            self.report({'ERROR'}, _("Save the Blender file before adding project statistics"))
             return {'CANCELLED'}
         try:
             data = _read_preset(preset_name)
@@ -318,11 +320,11 @@ class SK_OT_add_current_project_frequency(bpy.types.Operator):
                 data["projects"].pop(project_id, None)
             _write_preset(preset_name, data)
         except (OSError, ValueError, json.JSONDecodeError) as error:
-            self.report({'ERROR'}, f"Failed to save project statistics: {error}")
+            self.report({'ERROR'}, _("Failed to save project statistics: {}").format(error))
             return {'CANCELLED'}
         if meshes:
             context.window_manager.sk_manager.frequency_project = _project_enum_identifier(project_id)
-            self.report({'INFO'}, f"Added statistics for {len(meshes)} mesh(es) to '{preset_name}'")
+            self.report({'INFO'}, _("Added statistics for {} mesh(es) to '{}'").format(len(meshes), preset_name))
         else:
             context.window_manager.sk_manager.frequency_project = next(
                 (
@@ -331,7 +333,7 @@ class SK_OT_add_current_project_frequency(bpy.types.Operator):
                 ),
                 EMPTY_ENUM_VALUE,
             )
-            self.report({'INFO'}, "No non-zero shape key frequencies were found in this project")
+            self.report({'INFO'}, _("No non-zero shape key frequencies were found in this project"))
         return {'FINISHED'}
 
 
@@ -350,15 +352,15 @@ class SK_OT_sort_by_frequency_preset(bpy.types.Operator):
     def execute(self, context):
         preset_name = _selected_preset_name(context.window_manager.sk_manager.frequency_preset)
         if preset_name not in _available_preset_names():
-            self.report({'ERROR'}, "Select an existing frequency preset")
+            self.report({'ERROR'}, _("Select an existing frequency preset"))
             return {'CANCELLED'}
         try:
             counts = aggregate_preset_counts(_read_preset(preset_name))
         except (OSError, ValueError, json.JSONDecodeError) as error:
-            self.report({'ERROR'}, f"Failed to load frequency preset: {error}")
+            self.report({'ERROR'}, _("Failed to load frequency preset: {}").format(error))
             return {'CANCELLED'}
         matched_count = _sort_mesh_by_counts(context.active_object.data, counts)
-        self.report({'INFO'}, f"Sorted all categorized shape keys using {matched_count} saved frequencies")
+        self.report({'INFO'}, _("Sorted all categorized shape keys using {} saved frequencies").format(matched_count))
         return {'FINISHED'}
 
 
@@ -374,26 +376,26 @@ class SK_OT_delete_frequency_project_statistics(bpy.types.Operator):
         manager = context.window_manager.sk_manager
         preset_name = _selected_preset_name(manager.frequency_preset)
         if preset_name not in _available_preset_names():
-            self.report({'ERROR'}, "Select saved project statistics")
+            self.report({'ERROR'}, _("Select saved project statistics"))
             return {'CANCELLED'}
         try:
             data = _read_preset(preset_name)
             project_id = _selected_project_id(preset_name, manager.frequency_project)
             if not project_id:
-                self.report({'ERROR'}, "Select saved project statistics")
+                self.report({'ERROR'}, _("Select saved project statistics"))
                 return {'CANCELLED'}
             if project_id not in data["projects"]:
-                self.report({'ERROR'}, "Selected project statistics no longer exist")
+                self.report({'ERROR'}, _("Selected project statistics no longer exist"))
                 return {'CANCELLED'}
             del data["projects"][project_id]
             _write_preset(preset_name, data)
         except (OSError, ValueError, json.JSONDecodeError) as error:
-            self.report({'ERROR'}, f"Failed to delete project statistics: {error}")
+            self.report({'ERROR'}, _("Failed to delete project statistics: {}").format(error))
             return {'CANCELLED'}
         remaining_projects = _read_preset(preset_name).get("projects", {})
         manager.frequency_project = next(
             (_project_enum_identifier(project_id) for project_id in remaining_projects),
             EMPTY_ENUM_VALUE,
         )
-        self.report({'INFO'}, "Deleted saved project statistics")
+        self.report({'INFO'}, _("Deleted saved project statistics"))
         return {'FINISHED'}
