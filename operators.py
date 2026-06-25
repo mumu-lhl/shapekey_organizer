@@ -6,7 +6,7 @@ from .core import (
     match_pattern, mirror_name, mirror_side, get_visible_category_item_indices, get_sk_item_index_by_name,
     reorder_sk_items_by_names, check_and_sync_sk_items, set_sk_item_slider_value,
     get_keyframe_value_on_current_frame, get_keyframe_button_icon, has_any_keyframes,
-    tag_redraw_all_areas,
+    tag_redraw_all_areas, iter_action_fcurve_collections,
 )
 
 
@@ -707,14 +707,15 @@ class SK_OT_keyframe_single(bpy.types.Operator):
             action = obj.data.shape_keys.animation_data.action if obj.data.shape_keys.animation_data else None
             if action:
                 data_path = f'key_blocks["{self.shapekey_name}"].value'
-                for fcurve in action.fcurves:
-                    if fcurve.data_path == data_path:
-                        for kp in list(fcurve.keyframe_points):
-                            if abs(kp.co[0] - frame) < 0.01:
-                                fcurve.keyframe_points.remove(kp)
-                        if len(fcurve.keyframe_points) == 0:
-                            action.fcurves.remove(fcurve)
-                        break
+                for fcurves in iter_action_fcurve_collections(action):
+                    for fcurve in list(fcurves):
+                        if fcurve.data_path == data_path:
+                            for kp in list(fcurve.keyframe_points):
+                                if abs(kp.co[0] - frame) < 0.01:
+                                    fcurve.keyframe_points.remove(kp)
+                            if len(fcurve.keyframe_points) == 0:
+                                fcurves.remove(fcurve)
+                            break
         else:
             obj.data.shape_keys.keyframe_insert(
                 data_path=f'key_blocks["{self.shapekey_name}"].value',
@@ -730,7 +731,7 @@ class SK_OT_keyframe_single(bpy.types.Operator):
                         data_path=f'key_blocks["{m_name}"].value',
                         frame=frame
                     )
-        context.area.tag_redraw()
+        tag_redraw_all_areas()
         return {'FINISHED'}
 
 class SK_OT_keyframe_batch(bpy.types.Operator):

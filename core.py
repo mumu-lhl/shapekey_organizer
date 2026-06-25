@@ -4,7 +4,9 @@ import re
 _syncing_slider_values = False
 _syncing_all_selection = False
 _syncing_native_value_changes = False
+_syncing_mirror_keyframes = False
 _native_shape_key_value_cache = {}
+_native_frame_keyframe_cache = {}
 
 MIRROR_NAME_PAIRS = (
     ("_L", "_R"), ("_l", "_r"),
@@ -64,13 +66,34 @@ def sync_sk_item_slider_values(mesh, source_key_blocks=None):
     return None
 
 
+def iter_action_fcurve_collections(action):
+    if not action:
+        return
+    fcurves = getattr(action, "fcurves", None)
+    if fcurves is not None:
+        yield fcurves
+    for layer in getattr(action, "layers", []):
+        for strip in getattr(layer, "strips", []):
+            for channelbag in getattr(strip, "channelbags", []):
+                fcurves = getattr(channelbag, "fcurves", None)
+                if fcurves is not None:
+                    yield fcurves
+
+
+def iter_action_fcurves(action):
+    for fcurves in iter_action_fcurve_collections(action):
+        for fcurve in fcurves:
+            yield fcurve
+
+
 def cleanup_slider_value_fcurves(mesh):
     if not mesh.animation_data or not mesh.animation_data.action:
         return
     action = mesh.animation_data.action
-    for fcurve in list(action.fcurves):
-        if fcurve.data_path.startswith("sk_items[") and fcurve.data_path.endswith('].slider_value'):
-            action.fcurves.remove(fcurve)
+    for fcurves in iter_action_fcurve_collections(action):
+        for fcurve in list(fcurves):
+            if fcurve.data_path.startswith("sk_items[") and fcurve.data_path.endswith('].slider_value'):
+                fcurves.remove(fcurve)
 
 
 _action_keyframes_cache = {}
@@ -80,6 +103,23 @@ def clear_keyframe_caches():
     _action_keyframes_cache.clear()
     _frame_keyframe_cache.clear()
 
+
+def _cache_keyframes_on_frame(shape_keys, frame):
+    action = shape_keys.animation_data.action if shape_keys.animation_data else None
+    if not action:
+        return {}
+    return get_frame_keyframe_values(action, frame)
+
+
+def _store_native_frame_keyframes(mesh, frame):
+    if not mesh.shape_keys:
+        return {}
+    values = dict(_cache_keyframes_on_frame(mesh.shape_keys, frame))
+    action = mesh.shape_keys.animation_data.action if mesh.shape_keys.animation_data else None
+    cache_key = (mesh.as_pointer(), action.as_pointer() if action else 0, round(frame, 2))
+    _native_frame_keyframe_cache[cache_key] = values
+    return values
+
 def get_action_keyframes(action):
     if not action:
         return set()
@@ -88,7 +128,7 @@ def get_action_keyframes(action):
         return _action_keyframes_cache[action_ptr]
         
     any_keyframes = set()
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         if len(fcurve.keyframe_points) == 0:
             continue
         dp = fcurve.data_path
@@ -111,7 +151,7 @@ def get_frame_keyframe_values(action, frame):
         return _frame_keyframe_cache[cache_key]
         
     keyed_on_frame = {}
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         dp = fcurve.data_path
         if dp.startswith('key_blocks["') and dp.endswith('"].value'):
             parts = dp.split('"')
@@ -311,7 +351,7 @@ def upsert_shape_key_keyframe(shape_keys, key_name, frame, value):
     data_path = f'key_blocks["{key_name}"].value'
     action = shape_keys.animation_data.action if shape_keys.animation_data else None
     if action:
-        for fcurve in action.fcurves:
+        for fcurve in iter_action_fcurves(action):
             if fcurve.data_path != data_path:
                 continue
             for kp in fcurve.keyframe_points:
@@ -321,6 +361,74 @@ def upsert_shape_key_keyframe(shape_keys, key_name, frame, value):
                     return
             break
     shape_keys.keyframe_insert(data_path=data_path, frame=frame)
+
+
+def sync_native_shape_key_keyframe_insertions(obj, mgr, scene):
+    """Mirror keyframes inserted through Blender's native ShapeKey.value UI.
+
+    Pressing I on the native value property bypasses the plugin operators. The
+    depsgraph handler sees the resulting action change and mirrors only newly
+    inserted or updated keyframes on the current frame.
+    """
+    global _syncing_mirror_keyframes
+
+    if _syncing_mirror_keyframes or not mgr:
+        return False
+    if not mgr.mirror_mode:
+        _store_native_frame_keyframes(obj.data, scene.frame_current)
+        return False
+
+    mesh = obj.data
+    shape_keys = mesh.shape_keys
+    if not shape_keys or not shape_keys.animation_data or not shape_keys.animation_data.action:
+        if shape_keys:
+            _store_native_frame_keyframes(mesh, scene.frame_current)
+        return False
+
+    action = shape_keys.animation_data.action
+    frame = scene.frame_current
+    cache_key = (mesh.as_pointer(), action.as_pointer(), round(frame, 2))
+    empty_action_cache_key = (mesh.as_pointer(), 0, round(frame, 2))
+    current_values = dict(get_frame_keyframe_values(action, frame))
+    previous_values = _native_frame_keyframe_cache.get(cache_key)
+    if previous_values is None and empty_action_cache_key in _native_frame_keyframe_cache:
+        previous_values = _native_frame_keyframe_cache.pop(empty_action_cache_key)
+    _native_frame_keyframe_cache[cache_key] = current_values
+
+    if previous_values is None or bpy.context.active_object != obj:
+        return False
+
+    changed_names = [
+        name for name, value in current_values.items()
+        if (
+            name not in previous_values
+            or abs(previous_values.get(name, value) - value) > 0.000001
+        )
+    ]
+    if not changed_names:
+        return False
+
+    key_blocks = shape_keys.key_blocks
+    mirrored = False
+    _syncing_mirror_keyframes = True
+    try:
+        for key_name in changed_names:
+            mirrored_name = mirror_name(key_name)
+            if not mirrored_name or mirrored_name not in key_blocks:
+                continue
+            source_value = float(key_blocks[key_name].value)
+            key_blocks[mirrored_name].value = source_value
+            set_sk_item_slider_value(mesh, mirrored_name, source_value)
+            upsert_shape_key_keyframe(shape_keys, mirrored_name, frame, source_value)
+            mirrored = True
+    finally:
+        _syncing_mirror_keyframes = False
+
+    if mirrored:
+        clear_keyframe_caches()
+        _native_frame_keyframe_cache[cache_key] = dict(get_frame_keyframe_values(action, frame))
+        _cache_native_shape_key_values(mesh)
+    return mirrored
 
 
 def _cache_native_shape_key_values(mesh):
@@ -558,12 +666,19 @@ def sync_shapekey_ui_for_object(obj, depsgraph=None, process_native_value_change
     active_changed = (mgr.active_item_index != old_active_item_index)
 
     values_changed = False
+    keyframes_changed = False
     if process_native_value_changes:
         values_changed = sync_native_shape_key_value_changes(obj, mgr)
+        scene = getattr(bpy.context, "scene", None)
+        if scene:
+            keyframes_changed = sync_native_shape_key_keyframe_insertions(obj, mgr, scene)
     else:
         _cache_native_shape_key_values(mesh)
+        scene = getattr(bpy.context, "scene", None)
+        if scene:
+            _store_native_frame_keyframes(mesh, scene.frame_current)
 
-    return items_changed or active_changed or values_changed
+    return items_changed or active_changed or values_changed or keyframes_changed
 
 
 def sync_shapekey_ui_for_scene(scene, depsgraph=None, process_native_value_changes=True):

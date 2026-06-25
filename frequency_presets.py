@@ -4,7 +4,7 @@ import hashlib
 
 import bpy
 
-from .core import check_and_sync_sk_items, reorder_sk_items_by_names
+from .core import check_and_sync_sk_items, reorder_sk_items_by_names, iter_action_fcurves
 from .i18n import _
 
 
@@ -124,7 +124,7 @@ def count_mesh_keyframes(mesh):
         f'key_blocks["{key_name}"].value': key_name
         for key_name in counts
     }
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         key_name = data_path_to_name.get(fcurve.data_path)
         if key_name:
             counts[key_name] += len(fcurve.keyframe_points)
