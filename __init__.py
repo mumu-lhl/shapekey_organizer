@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Shape Key Classification",
     "author": "Mumulhl",
-    "version": (1, 0, 0),
-    "blender": (5, 1, 0),
+    "version": (0, 0, 1),
+    "blender": (4, 2, 0),
     "location": "View3D > N-Panel > Shape Key Classification",
     "description": "形态键分类、滚动式预设编辑、复选框多选归类、镜像K帧、自动K帧、通配符批量匹配以及预设导出/应用",
     "warning": "",
@@ -47,6 +47,7 @@ classes = [
     operators.SK_OT_clear_all_list_selection,
     operators.SK_OT_assign_active_and_above_category,
     operators.SK_OT_clear_category,
+    operators.SK_OT_restore_default_category_order,
     operators.SK_OT_reset_alias_preview,
     operators.SK_OT_reset_all_alias_previews,
     operators.SK_OT_keyframe_single,

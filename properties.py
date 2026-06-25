@@ -17,6 +17,7 @@ class ShapeKeyItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
     alias: bpy.props.StringProperty(default="")
     category: bpy.props.StringProperty(default="")
+    category_order: bpy.props.IntProperty(default=-1)
     selected: bpy.props.BoolProperty(default=False)
     # “所有形态键”列表专用选择状态，避免影响当前分类里的动画勾选/批量K帧。
     all_selected: bpy.props.BoolProperty(default=False, update=on_all_selected_changed)

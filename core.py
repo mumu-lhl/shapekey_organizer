@@ -196,7 +196,19 @@ def get_visible_category_item_indices(obj, mgr):
         if mgr.show_only_keyed and (not keyed_names or item.name not in keyed_names):
             continue
         result.append(index)
-    return result
+    return sorted(result, key=lambda index: get_category_order_sort_key(obj.data.sk_items[index], index))
+
+
+def get_category_order_sort_key(item, fallback_index):
+    order = getattr(item, "category_order", -1)
+    return (order if order >= 0 else fallback_index, fallback_index)
+
+
+def apply_category_order_by_names(mesh, category_name, ordered_names):
+    order_by_name = {name: order for order, name in enumerate(ordered_names)}
+    for item in mesh.sk_items:
+        if item.category == category_name and item.name in order_by_name:
+            item.category_order = order_by_name[item.name]
 
 
 def get_sk_item_index_by_name(mesh, key_name):
@@ -242,6 +254,7 @@ def reorder_sk_items_from_preset(mesh, categories_data):
 
     alias_cache = {item.name: item.alias for item in mesh.sk_items}
     cat_cache = {item.name: item.category for item in mesh.sk_items}
+    order_cache = {item.name: item.category_order for item in mesh.sk_items}
     sel_cache = {item.name: item.selected for item in mesh.sk_items}
     all_sel_cache = {item.name: item.all_selected for item in mesh.sk_items}
 
@@ -261,6 +274,7 @@ def reorder_sk_items_from_preset(mesh, categories_data):
         item.name = name
         item.alias = alias_cache.get(name, "")
         item.category = cat_cache.get(name, "")
+        item.category_order = order_cache.get(name, -1)
         item.selected = sel_cache.get(name, False)
         item.all_selected = all_sel_cache.get(name, False)
 
@@ -268,6 +282,7 @@ def reorder_sk_items_from_preset(mesh, categories_data):
 def reorder_sk_items_by_names(mesh, ordered_names):
     alias_cache = {item.name: item.alias for item in mesh.sk_items}
     cat_cache = {item.name: item.category for item in mesh.sk_items}
+    order_cache = {item.name: item.category_order for item in mesh.sk_items}
     sel_cache = {item.name: item.selected for item in mesh.sk_items}
     all_sel_cache = {item.name: item.all_selected for item in mesh.sk_items}
 
@@ -277,6 +292,7 @@ def reorder_sk_items_by_names(mesh, ordered_names):
         item.name = name
         item.alias = alias_cache.get(name, "")
         item.category = cat_cache.get(name, "")
+        item.category_order = order_cache.get(name, -1)
         item.selected = sel_cache.get(name, False)
         item.all_selected = all_sel_cache.get(name, False)
 
@@ -311,6 +327,7 @@ def check_and_sync_sk_items(mesh):
         cleanup_slider_value_fcurves(mesh)
         alias_cache = {item.name: item.alias for item in mesh.sk_items}
         cat_cache = {item.name: item.category for item in mesh.sk_items}
+        order_cache = {item.name: item.category_order for item in mesh.sk_items}
         sel_cache = {item.name: item.selected for item in mesh.sk_items}
         all_sel_cache = {item.name: item.all_selected for item in mesh.sk_items}
         preserved_names = [name for name in item_names if name in kb_names]
@@ -322,6 +339,7 @@ def check_and_sync_sk_items(mesh):
             item.name = name
             item.alias = alias_cache.get(name, "")
             item.category = cat_cache.get(name, "")
+            item.category_order = order_cache.get(name, -1)
             item.selected = sel_cache.get(name, False)
             item.all_selected = all_sel_cache.get(name, False)
         sync_sk_item_slider_values(mesh)

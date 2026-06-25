@@ -4,9 +4,10 @@ from . import core as core_module
 from .i18n import _
 from .core import (
     match_pattern, mirror_name, mirror_side, get_visible_category_item_indices, get_sk_item_index_by_name,
-    reorder_sk_items_by_names, check_and_sync_sk_items, set_sk_item_slider_value,
+    check_and_sync_sk_items, set_sk_item_slider_value,
     get_keyframe_value_on_current_frame, get_keyframe_button_icon, has_any_keyframes,
     tag_redraw_all_areas, iter_action_fcurve_collections, is_auto_keyframe_enabled,
+    apply_category_order_by_names,
 )
 
 
@@ -169,10 +170,15 @@ class SK_OT_reorder_shapekey(bpy.types.Operator):
                 return {'CANCELLED'}
             target_index = visible_indices[pos + 1]
 
-        obj.data.sk_items.move(active_index, target_index)
-        mgr.active_item_index = target_index
-        if 0 <= target_index < len(obj.data.sk_items):
-            mgr.active_item_name = obj.data.sk_items[target_index].name
+        ordered_names = [obj.data.sk_items[index].name for index in visible_indices]
+        moving_name = obj.data.sk_items[active_index].name
+        ordered_names.remove(moving_name)
+        insert_pos = pos - 1 if self.direction == 'UP' else pos + 1
+        ordered_names.insert(insert_pos, moving_name)
+        active_cat = obj.data.sk_categories[mgr.active_category_index]
+        apply_category_order_by_names(obj.data, active_cat.name, ordered_names)
+        mgr.active_item_index = active_index
+        mgr.active_item_name = moving_name
         return {'FINISHED'}
 
 class SK_OT_move_active_shapekey_to(bpy.types.Operator):
@@ -201,7 +207,6 @@ class SK_OT_move_active_shapekey_to(bpy.types.Operator):
         if not visible_indices:
             return {'CANCELLED'}
 
-        all_names = [item.name for item in obj.data.sk_items]
         visible_names = [obj.data.sk_items[i].name for i in visible_indices]
         active_name = obj.data.sk_items[mgr.active_item_index].name if 0 <= mgr.active_item_index < len(obj.data.sk_items) else None
         selected_names = [obj.data.sk_items[i].name for i in visible_indices if obj.data.sk_items[i].selected]
@@ -219,10 +224,8 @@ class SK_OT_move_active_shapekey_to(bpy.types.Operator):
         insert_pos = target_pos if self.position == 'BEFORE' else target_pos + 1
         reordered_visible_names = visible_remaining[:insert_pos] + moving_names + visible_remaining[insert_pos:]
 
-        for collection_index, name in zip(visible_indices, reordered_visible_names):
-            all_names[collection_index] = name
-
-        reorder_sk_items_by_names(obj.data, all_names)
+        active_cat = obj.data.sk_categories[mgr.active_category_index]
+        apply_category_order_by_names(obj.data, active_cat.name, reordered_visible_names)
         if active_name:
             mgr.active_item_name = active_name
             mgr.active_item_index = get_sk_item_index_by_name(obj.data, active_name)
@@ -684,6 +687,26 @@ class SK_OT_clear_category(bpy.types.Operator):
                 item.selected = False
                 count += 1
         self.report({'INFO'}, _("Removed {} shape keys from category.").format(count))
+        return {'FINISHED'}
+
+
+class SK_OT_restore_default_category_order(bpy.types.Operator):
+    bl_idname = "sk_helper.restore_default_category_order"
+    bl_label = "Restore Default Shape Key Order"
+    bl_description = "Restore category shape key order to the current mesh's original shape key order"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and hasattr(obj.data, "sk_items")
+
+    def execute(self, context):
+        obj = context.active_object
+        for item in obj.data.sk_items:
+            item.category_order = -1
+        tag_redraw_all_areas()
+        self.report({'INFO'}, _("Restored default shape key order for current mesh."))
         return {'FINISHED'}
 
 

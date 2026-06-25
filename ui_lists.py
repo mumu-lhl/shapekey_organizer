@@ -1,7 +1,10 @@
 import bpy
 
 from .i18n import _
-from .core import get_visible_category_item_indices, has_any_keyframes, get_keyframe_button_icon, get_keyed_shape_key_names
+from .core import (
+    get_visible_category_item_indices, has_any_keyframes, get_keyframe_button_icon,
+    get_keyed_shape_key_names, get_category_order_sort_key,
+)
 
 class MESH_UL_sk_categories(bpy.types.UIList):
     """分类管理列表"""
@@ -189,4 +192,8 @@ class MESH_UL_filtered_shapekeys(bpy.types.UIList):
                 continue
             if mgr.show_only_keyed and (not keyed_names or item.name not in keyed_names):
                 filter_flags[i] &= ~self.bitflag_filter_item
+        filter_order = sorted(
+            range(len(items)),
+            key=lambda index: get_category_order_sort_key(items[index], index),
+        )
         return filter_flags, filter_order

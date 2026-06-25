@@ -3,10 +3,10 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "shapekey_organizer"
-version = "1.0.0"
+version = "0.0.1"
 name = "形态键分类"
 tagline = "Organize and classify shape keys"
-maintainer = "Mumulhl"
+maintainer = "沐沐13号"
 # Supported types: "add-on", "theme"
 type = "add-on"
 
@@ -58,16 +58,28 @@ license = [
 # Keep this a single short sentence without a period (.) at the end.
 # For longer explanations use the documentation or detail page.
 #
-# [permissions]
+[permissions]
 # network = "Need to sync motion-capture data to server"
-# files = "Import/export FBX from/to disk"
+files = "Read/Write presets"
 # clipboard = "Copy and paste bone transforms"
 
 # Optional: build settings.
 # https://docs.blender.org/manual/en/dev/advanced/extensions/command_line_arguments.html#command-line-args-extension-build
-# [build]
-# paths_exclude_pattern = [
-#   "__pycache__/",
-#   "/.git/",
-#   "/*.zip",
-# ]
+[build]
+paths_exclude_pattern = [
+    "__pycache__/",
+    "/.git/",
+    ".venv/",
+    "*.zip",
+    "*.blend1",
+    ".gitignore",
+    ".jj",
+    "pyproject.toml",
+    ".python-version",
+    "justfile",
+    "uv.lock",
+    ".vscode/",
+    "cliff.toml",
+    ".ruff_cache/",
+    ".codex",
+]

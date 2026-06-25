@@ -4,7 +4,10 @@ import hashlib
 
 import bpy
 
-from .core import check_and_sync_sk_items, reorder_sk_items_by_names, iter_action_fcurves
+from .core import (
+    check_and_sync_sk_items, iter_action_fcurves, get_category_order_sort_key,
+    apply_category_order_by_names,
+)
 from .i18n import _
 
 
@@ -175,19 +178,29 @@ def _categorized_shape_key_indices(mesh):
 
 def _sort_mesh_by_counts(mesh, counts):
     check_and_sync_sk_items(mesh)
-    target_indices = _categorized_shape_key_indices(mesh)
-    original_names = [item.name for item in mesh.sk_items]
-    target_names = [original_names[index] for index in target_indices]
-    ordered_target_names = sorted(
-        target_names,
-        key=lambda name: (-counts.get(name, 0), target_names.index(name)),
-    )
-    ordered_names = list(original_names)
-    for index, name in zip(target_indices, ordered_target_names):
-        ordered_names[index] = name
-    if ordered_names != original_names:
-        reorder_sk_items_by_names(mesh, ordered_names)
-    return sum(1 for name in target_names if counts.get(name, 0) > 0)
+    matched_count = 0
+    for category in mesh.sk_categories:
+        category_items = [
+            (index, item)
+            for index, item in enumerate(mesh.sk_items)
+            if item.category == category.name
+        ]
+        if not category_items:
+            continue
+        ordered_items = sorted(
+            category_items,
+            key=lambda entry: (
+                -counts.get(entry[1].name, 0),
+                get_category_order_sort_key(entry[1], entry[0]),
+            ),
+        )
+        apply_category_order_by_names(
+            mesh,
+            category.name,
+            [item.name for _, item in ordered_items],
+        )
+        matched_count += sum(1 for _, item in category_items if counts.get(item.name, 0) > 0)
+    return matched_count
 
 
 def frequency_project_items(self, context):
@@ -239,7 +252,7 @@ class SK_OT_sort_by_current_keyframe_frequency(bpy.types.Operator):
         mesh = context.active_object.data
         check_and_sync_sk_items(mesh)
         matched_count = _sort_mesh_by_counts(mesh, count_mesh_keyframes(mesh))
-        self.report({'INFO'}, _("Sorted all categorized shape keys using {} non-zero current-project frequencies").format(matched_count))
+        self.report({'INFO'}, _("Sorted shape keys within categories using {} non-zero current-project frequencies").format(matched_count))
         return {'FINISHED'}
 
 
@@ -360,7 +373,7 @@ class SK_OT_sort_by_frequency_preset(bpy.types.Operator):
             self.report({'ERROR'}, _("Failed to load frequency preset: {}").format(error))
             return {'CANCELLED'}
         matched_count = _sort_mesh_by_counts(context.active_object.data, counts)
-        self.report({'INFO'}, _("Sorted all categorized shape keys using {} saved frequencies").format(matched_count))
+        self.report({'INFO'}, _("Sorted shape keys within categories using {} saved frequencies").format(matched_count))
         return {'FINISHED'}
 
 

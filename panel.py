@@ -94,6 +94,12 @@ def draw_frequency_statistics_tools(layout, mgr):
     )
     row = layout.row(align=True)
     row.operator(
+        "sk_helper.restore_default_category_order",
+        text=_("Restore Default Shape Key Order"),
+        icon='SORT_ASC',
+    )
+    row = layout.row(align=True)
+    row.operator(
         "sk_helper.add_current_project_frequency",
         text=_("Add Current Project Statistics"),
         icon='ADD',
