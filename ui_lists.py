@@ -75,6 +75,49 @@ class MESH_UL_all_shapekeys(bpy.types.UIList):
 
         return filter_flags, filter_order
 
+
+class MESH_UL_alias_editor(bpy.types.UIList):
+    """Preset-time alias editor with value preview controls."""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        obj = context.active_object
+        if not obj or not obj.data or not obj.data.shape_keys:
+            return
+
+        if self.layout_type not in {'DEFAULT', 'COMPACT'}:
+            layout.alignment = 'CENTER'
+            layout.label(text=item.alias.strip() or item.name, icon='SHAPEKEY_DATA')
+            return
+
+        split = layout.split(factor=0.32, align=True)
+        name_row = split.row(align=True)
+        edit_row = split.row(align=True)
+
+        name_row.label(text=item.name, icon='SHAPEKEY_DATA')
+        edit_row.prop(item, "alias", text="")
+        edit_row.prop(item, "alias_preview_value", text="", slider=True)
+        op = edit_row.operator("sk_helper.reset_alias_preview", text="", icon='LOOP_BACK')
+        op.shapekey_name = item.name
+
+    def filter_items(self, context, data, propname):
+        items = getattr(data, propname)
+        filter_flags = [self.bitflag_filter_item] * len(items)
+        filter_order = []
+
+        mgr = getattr(context.window_manager, "sk_manager", None) if context else None
+        search_text = getattr(mgr, "all_search_text", "").strip().lower() if mgr else ""
+        if not search_text:
+            return filter_flags, filter_order
+
+        for i, item in enumerate(items):
+            alias_text = item.alias.strip().lower()
+            name_text = item.name.lower()
+            if search_text not in name_text and search_text not in alias_text:
+                filter_flags[i] &= ~self.bitflag_filter_item
+
+        return filter_flags, filter_order
+
+
 class MESH_UL_filtered_shapekeys(bpy.types.UIList):
     """过滤后的形态键渲染控制列表"""
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):

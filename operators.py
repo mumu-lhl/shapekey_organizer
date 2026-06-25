@@ -686,6 +686,47 @@ class SK_OT_clear_category(bpy.types.Operator):
         self.report({'INFO'}, _("Removed {} shape keys from category.").format(count))
         return {'FINISHED'}
 
+
+class SK_OT_reset_alias_preview(bpy.types.Operator):
+    bl_idname = "sk_helper.reset_alias_preview"
+    bl_label = "Reset Preview Value"
+    bl_description = "Reset this shape key preview value to 0 without inserting keyframes"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    shapekey_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = context.active_object
+        if not obj or not obj.data.shape_keys:
+            return {'CANCELLED'}
+        key_blocks = obj.data.shape_keys.key_blocks
+        if self.shapekey_name not in key_blocks:
+            return {'CANCELLED'}
+        key_blocks[self.shapekey_name].value = 0.0
+        set_sk_item_slider_value(obj.data, self.shapekey_name, 0.0)
+        tag_redraw_all_areas()
+        return {'FINISHED'}
+
+
+class SK_OT_reset_all_alias_previews(bpy.types.Operator):
+    bl_idname = "sk_helper.reset_all_alias_previews"
+    bl_label = "Reset All Preview Values"
+    bl_description = "Reset all shape key preview values to 0 without inserting keyframes"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        if not obj or not obj.data.shape_keys:
+            return {'CANCELLED'}
+        key_blocks = obj.data.shape_keys.key_blocks
+        for item in obj.data.sk_items:
+            if item.name in key_blocks:
+                key_blocks[item.name].value = 0.0
+                set_sk_item_slider_value(obj.data, item.name, 0.0)
+        tag_redraw_all_areas()
+        return {'FINISHED'}
+
+
 class SK_OT_keyframe_single(bpy.types.Operator):
     bl_idname = "sk_helper.keyframe_single"
     bl_label = "Keyframe Single"

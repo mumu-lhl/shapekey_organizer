@@ -3,6 +3,8 @@ import bpy
 from .core import (
     get_shapekey_slider_value,
     set_shapekey_slider_value,
+    get_shapekey_preview_value,
+    set_shapekey_preview_value,
     on_active_item_index_changed,
     on_active_all_item_index_changed,
     on_all_selected_changed,
@@ -27,6 +29,17 @@ class ShapeKeyItem(bpy.types.PropertyGroup):
         precision=3,
         get=get_shapekey_slider_value,
         set=set_shapekey_slider_value
+    )
+    alias_preview_value: bpy.props.FloatProperty(
+        name="Preview Value",
+        description="Preview this shape key value while editing aliases without inserting keyframes",
+        min=-100.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=1.0,
+        precision=3,
+        get=get_shapekey_preview_value,
+        set=set_shapekey_preview_value
     )
 
 def on_category_name_changed(self, context):
@@ -66,6 +79,7 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
     # “所有形态键”列表使用独立活动索引，代表这个列表里的原生单选行。
     active_all_item_index: bpy.props.IntProperty(default=0, update=on_active_all_item_index_changed)
     active_all_item_name: bpy.props.StringProperty(default="")
+    active_alias_item_index: bpy.props.IntProperty(default=0)
     # “所有形态键”列表的范围/批量选择锚点；复选框多选与原生单选行分离。
     all_select_anchor_index: bpy.props.IntProperty(default=-1)
     all_select_anchor_name: bpy.props.StringProperty(default="")

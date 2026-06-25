@@ -1,7 +1,7 @@
 import bpy
 
 from .i18n import _
-from .operators import get_all_list_target_indices, resolve_active_all_single_index
+from .operators import get_all_list_target_indices
 
 
 def draw_all_shape_key_tools(box, context, obj, mgr):
@@ -36,14 +36,6 @@ def draw_all_shape_key_tools(box, context, obj, mgr):
     else:
         box.label(text=_("No all-list item selected yet"), icon='INFO')
 
-    active_all_index = resolve_active_all_single_index(obj.data, mgr)
-    if 0 <= active_all_index < len(obj.data.sk_items):
-        active_item = obj.data.sk_items[active_all_index]
-        detail = box.box()
-        detail.label(text=_("Original Name"), icon='INFO')
-        detail.label(text=active_item.name)
-        detail.prop(active_item, "alias", text=_("Alias"))
-
     row = box.row(align=True)
     row.operator("sk_helper.assign_active_all_to_category", text=_("Assign"), icon='ADD')
     row.operator("sk_helper.clear_active_all_category", text=_("Remove Category"), icon='REMOVE')
@@ -53,6 +45,35 @@ def draw_all_shape_key_tools(box, context, obj, mgr):
 
     row = box.row(align=True)
     row.operator("sk_helper.clear_all_list_selection", text=_("Clear All List Selection"), icon='X')
+
+
+def draw_alias_editor_tools(box, context, obj, mgr):
+    box.label(text=_("Alias Editor"), icon='GREASEPENCIL')
+
+    row = box.row(align=True)
+    row.prop(mgr, "all_search_text", text="", icon='VIEWZOOM')
+    row.operator("sk_helper.reset_all_alias_previews", text="", icon='LOOP_BACK')
+
+    box.template_list(
+        "MESH_UL_alias_editor",
+        "",
+        obj.data,
+        "sk_items",
+        mgr,
+        "active_alias_item_index",
+        rows=8,
+        maxrows=16,
+    )
+
+    mirror_alias_box = box.box()
+    mirror_alias_box.label(text=_("Mirror Alias"), icon='MOD_MIRROR')
+    row = mirror_alias_box.row(align=True)
+    row.prop(mgr, "left_alias_prefix", text=_("Left Prefix"))
+    row.prop(mgr, "left_alias_suffix", text=_("Left Suffix"))
+    row = mirror_alias_box.row(align=True)
+    row.prop(mgr, "right_alias_prefix", text=_("Right Prefix"))
+    row.prop(mgr, "right_alias_suffix", text=_("Right Suffix"))
+    mirror_alias_box.operator("sk_helper.sync_mirror_aliases", text=_("Sync Mirror Aliases"), icon='FILE_REFRESH')
 
 
 def draw_frequency_statistics_tools(layout, mgr):
@@ -128,15 +149,8 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
                 box_all = box.box()
                 draw_all_shape_key_tools(box_all, context, obj, mgr)
 
-                mirror_alias_box = box.box()
-                mirror_alias_box.label(text=_("Mirror Alias"), icon='MOD_MIRROR')
-                row = mirror_alias_box.row(align=True)
-                row.prop(mgr, "left_alias_prefix", text=_("Left Prefix"))
-                row.prop(mgr, "left_alias_suffix", text=_("Left Suffix"))
-                row = mirror_alias_box.row(align=True)
-                row.prop(mgr, "right_alias_prefix", text=_("Right Prefix"))
-                row.prop(mgr, "right_alias_suffix", text=_("Right Suffix"))
-                mirror_alias_box.operator("sk_helper.sync_mirror_aliases", text=_("Sync Mirror Aliases"), icon='FILE_REFRESH')
+                alias_box = box.box()
+                draw_alias_editor_tools(alias_box, context, obj, mgr)
 
         box = layout.box()
         box.label(text=_("Shape Keys in Category"), icon='SHAPEKEY_DATA')

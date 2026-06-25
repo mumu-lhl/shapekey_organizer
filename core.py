@@ -518,6 +518,24 @@ def get_shapekey_slider_value(self):
     return float(kb.value)
 
 
+def get_shapekey_preview_value(self):
+    return get_shapekey_slider_value(self)
+
+
+def set_shapekey_preview_value(self, value):
+    mesh = self.id_data
+    if not mesh or not mesh.shape_keys:
+        return
+
+    kb = mesh.shape_keys.key_blocks.get(self.name)
+    if not kb:
+        return
+
+    kb.value = value
+    _cache_native_shape_key_values(mesh)
+    tag_redraw_all_areas()
+
+
 def set_shapekey_slider_value(self, value):
     global _syncing_slider_values
 
