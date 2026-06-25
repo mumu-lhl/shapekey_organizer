@@ -61,7 +61,7 @@ license = [
 [permissions]
 # network = "Need to sync motion-capture data to server"
 files = "Read/Write presets"
-# clipboard = "Copy and paste bone transforms"
+clipboard = "Copy prompts"
 
 # Optional: build settings.
 # https://docs.blender.org/manual/en/dev/advanced/extensions/command_line_arguments.html#command-line-args-extension-build

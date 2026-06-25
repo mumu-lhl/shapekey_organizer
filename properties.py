@@ -1,5 +1,6 @@
 import bpy
 
+from .i18n import _
 from .core import (
     get_shapekey_slider_value,
     set_shapekey_slider_value,
@@ -11,6 +12,49 @@ from .core import (
     on_auto_keyframe_toggled,
 )
 from .frequency_presets import frequency_preset_items, frequency_project_items
+
+DEFAULT_AI_ALIAS_PROMPT = """You are helping rename Blender shape keys into readable, clear, concise aliases.
+
+Target language: {target_language}
+
+Task:
+- Create one alias for each shape key name listed below.
+- Keep aliases short and easy to scan in an animator-facing UI.
+- Preserve important side markers such as Left/Right when they affect meaning.
+- Do not invent controls that are not implied by the original name.
+- Prefer natural words over technical abbreviations when possible.
+
+Output format:
+- Return only a JSON object.
+- Each key must be the exact original shape key name.
+- Each value must be the alias.
+
+Shape key names:
+{shape_key_names}"""
+
+
+def get_addon_preferences(context=None):
+    context = context or bpy.context
+    addon = context.preferences.addons.get(__package__)
+    return addon.preferences if addon else None
+
+
+class ShapeKeyOrganizerPreferences(bpy.types.AddonPreferences):
+    bl_idname = __package__
+
+    ai_alias_prompt: bpy.props.StringProperty(
+        name="AI Alias Prompt",
+        description="Prompt template used when copying AI alias generation prompts. Supports {target_language} and {shape_key_names}",
+        default=DEFAULT_AI_ALIAS_PROMPT,
+        maxlen=8192,
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text=_("AI Alias Prompt"), icon='TEXT')
+        layout.prop(self, "ai_alias_prompt", text="")
+        layout.operator("sk_helper.reset_ai_alias_prompt", text=_("Use Default AI Alias Prompt"), icon='LOOP_BACK')
+
 
 class ShapeKeyItem(bpy.types.PropertyGroup):
     """存储在 Mesh 下的形态键元数据"""
@@ -81,6 +125,17 @@ class MeshShapeKeyManager(bpy.types.PropertyGroup):
     active_all_item_index: bpy.props.IntProperty(default=0, update=on_active_all_item_index_changed)
     active_all_item_name: bpy.props.StringProperty(default="")
     active_alias_item_index: bpy.props.IntProperty(default=0)
+    ai_alias_target_language: bpy.props.StringProperty(
+        name="Target Language",
+        description="Target language for AI-generated shape key aliases",
+        default="English",
+    )
+    ai_alias_json_text: bpy.props.StringProperty(
+        name="AI Alias JSON",
+        description="Paste the JSON object returned by the AI, using exact shape key names as keys and aliases as values",
+        default="",
+        maxlen=65535,
+    )
     # “所有形态键”列表的范围/批量选择锚点；复选框多选与原生单选行分离。
     all_select_anchor_index: bpy.props.IntProperty(default=-1)
     all_select_anchor_name: bpy.props.StringProperty(default="")

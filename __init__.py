@@ -20,9 +20,14 @@ for _mod in (i18n, core, frequency_presets, properties, ui_lists, operators, pre
     importlib.reload(_mod)
 
 classes = [
+    properties.ShapeKeyOrganizerPreferences,
     properties.ShapeKeyItem,
     properties.MeshShapeKeyManager,
     properties.ShapeKeyCategoryItem,
+    operators.SK_OT_reset_ai_alias_prompt,
+    operators.SK_OT_copy_ai_alias_prompt,
+    operators.SK_OT_apply_ai_alias_json,
+    operators.SK_OT_paste_ai_alias_json,
     frequency_presets.SK_OT_sort_by_current_keyframe_frequency,
     frequency_presets.SK_OT_create_frequency_preset,
     frequency_presets.SK_OT_delete_frequency_preset,

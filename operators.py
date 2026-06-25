@@ -1,6 +1,9 @@
+import json
+
 import bpy
 
 from . import core as core_module
+from . import properties
 from .i18n import _
 from .core import (
     match_pattern, mirror_name, mirror_side, get_visible_category_item_indices, get_sk_item_index_by_name,
@@ -9,6 +12,152 @@ from .core import (
     tag_redraw_all_areas, iter_action_fcurve_collections, is_auto_keyframe_enabled,
     apply_category_order_by_names,
 )
+
+
+def _build_shape_key_name_block(names):
+    return "\n".join(f"- {name}" for name in names)
+
+
+def _render_ai_alias_prompt(template, target_language, shape_key_names):
+    prompt = template or properties.DEFAULT_AI_ALIAS_PROMPT
+    name_block = _build_shape_key_name_block(shape_key_names)
+    rendered = prompt.replace("{target_language}", target_language)
+    rendered = rendered.replace("{shape_key_names}", name_block)
+    if "{shape_key_names}" not in prompt:
+        rendered = f"{rendered.rstrip()}\n\nShape key names:\n{name_block}"
+    if "{target_language}" not in prompt:
+        rendered = f"{rendered.rstrip()}\n\nTarget language: {target_language}"
+    return rendered
+
+
+def _extract_json_object_text(text):
+    value = text.strip()
+    if value.startswith("```"):
+        lines = value.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        value = "\n".join(lines).strip()
+
+    start = value.find("{")
+    end = value.rfind("}")
+    if start >= 0 and end > start:
+        return value[start:end + 1]
+    return value
+
+
+class SK_OT_reset_ai_alias_prompt(bpy.types.Operator):
+    bl_idname = "sk_helper.reset_ai_alias_prompt"
+    bl_label = "Use Default AI Alias Prompt"
+    bl_description = "Restore the default prompt template for AI alias generation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        prefs = properties.get_addon_preferences(context)
+        if not prefs:
+            return {'CANCELLED'}
+        prefs.ai_alias_prompt = properties.DEFAULT_AI_ALIAS_PROMPT
+        self.report({'INFO'}, _("Restored default AI alias prompt"))
+        return {'FINISHED'}
+
+
+class SK_OT_copy_ai_alias_prompt(bpy.types.Operator):
+    bl_idname = "sk_helper.copy_ai_alias_prompt"
+    bl_label = "Copy AI Alias Prompt"
+    bl_description = "Copy a prompt for generating readable aliases for shape keys without aliases"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
+
+    def execute(self, context):
+        obj = context.active_object
+        mesh = obj.data
+        check_and_sync_sk_items(mesh)
+
+        names = [item.name for item in mesh.sk_items if not item.alias.strip()]
+        if not names:
+            self.report({'INFO'}, _("All shape keys already have aliases"))
+            return {'CANCELLED'}
+
+        mgr = context.window_manager.sk_manager
+        target_language = mgr.ai_alias_target_language.strip() or "English"
+        prefs = properties.get_addon_preferences(context)
+        template = prefs.ai_alias_prompt if prefs else properties.DEFAULT_AI_ALIAS_PROMPT
+        context.window_manager.clipboard = _render_ai_alias_prompt(template, target_language, names)
+        self.report({'INFO'}, _("Copied AI alias prompt for {} shape key(s)").format(len(names)))
+        return {'FINISHED'}
+
+
+class SK_OT_apply_ai_alias_json(bpy.types.Operator):
+    bl_idname = "sk_helper.apply_ai_alias_json"
+    bl_label = "Apply AI Alias JSON"
+    bl_description = "Set aliases from a JSON object whose keys are exact shape key names and values are aliases"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
+
+    def execute(self, context):
+        mgr = context.window_manager.sk_manager
+        text = mgr.ai_alias_json_text.strip()
+        if not text:
+            self.report({'WARNING'}, _("Paste AI alias JSON first"))
+            return {'CANCELLED'}
+
+        try:
+            alias_map = json.loads(_extract_json_object_text(text))
+        except Exception as exc:
+            self.report({'ERROR'}, _("Invalid AI alias JSON: {}").format(exc))
+            return {'CANCELLED'}
+
+        if not isinstance(alias_map, dict):
+            self.report({'ERROR'}, _("AI alias JSON must be an object"))
+            return {'CANCELLED'}
+
+        mesh = context.active_object.data
+        check_and_sync_sk_items(mesh)
+        items_by_name = {item.name: item for item in mesh.sk_items}
+        applied_count = 0
+        skipped_count = 0
+
+        for key_name, alias in alias_map.items():
+            if not isinstance(key_name, str) or key_name not in items_by_name:
+                skipped_count += 1
+                continue
+            if not isinstance(alias, str) or not alias.strip():
+                skipped_count += 1
+                continue
+            items_by_name[key_name].alias = alias.strip()
+            applied_count += 1
+
+        if applied_count:
+            self.report({'INFO'}, _("Applied {} AI alias(es). Skipped {} item(s).").format(applied_count, skipped_count))
+            return {'FINISHED'}
+
+        self.report({'WARNING'}, _("No matching AI aliases were applied"))
+        return {'CANCELLED'}
+
+
+class SK_OT_paste_ai_alias_json(bpy.types.Operator):
+    bl_idname = "sk_helper.paste_ai_alias_json"
+    bl_label = "Paste AI Alias JSON from Clipboard"
+    bl_description = "Paste multiline AI alias JSON from the system clipboard into the alias JSON field"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        clipboard_text = context.window_manager.clipboard
+        if not clipboard_text.strip():
+            self.report({'WARNING'}, _("Clipboard is empty"))
+            return {'CANCELLED'}
+        context.window_manager.sk_manager.ai_alias_json_text = clipboard_text
+        self.report({'INFO'}, _("Pasted AI alias JSON from clipboard"))
+        return {'FINISHED'}
 
 
 def _alias_without_side_markers(alias, prefix, suffix):

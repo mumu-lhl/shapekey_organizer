@@ -75,6 +75,17 @@ def draw_alias_editor_tools(box, context, obj, mgr):
     row.prop(mgr, "right_alias_suffix", text=_("Right Suffix"))
     mirror_alias_box.operator("sk_helper.sync_mirror_aliases", text=_("Sync Mirror Aliases"), icon='FILE_REFRESH')
 
+    ai_box = box.box()
+    ai_box.label(text=_("AI Alias Helper"), icon='TEXT')
+    row = ai_box.row(align=True)
+    row.prop(mgr, "ai_alias_target_language", text=_("Target Language"))
+    row.operator("sk_helper.copy_ai_alias_prompt", text=_("Copy Prompt"), icon='COPYDOWN')
+    ai_box.label(text=_("For multiline JSON, copy it and use Paste JSON from Clipboard."), icon='INFO')
+    row = ai_box.row(align=True)
+    row.prop(mgr, "ai_alias_json_text", text="")
+    row.operator("sk_helper.paste_ai_alias_json", text="", icon='PASTEDOWN')
+    ai_box.operator("sk_helper.apply_ai_alias_json", text=_("Apply AI Alias JSON"), icon='CHECKMARK')
+
 
 def draw_frequency_statistics_tools(layout, mgr):
     row = layout.row(align=True)
