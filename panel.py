@@ -102,6 +102,56 @@ def draw_frequency_statistics_tools(layout, mgr):
     row.prop(mgr, "frequency_project", text=_("Saved Project Statistics"))
     row.operator("sk_helper.delete_frequency_project_statistics", text="", icon='REMOVE')
 
+
+def draw_category_work_selector(layout, obj, mgr):
+    box = layout.box()
+    box.label(text=_("Categories"), icon='FILE_FOLDER')
+    box.template_list(
+        "MESH_UL_sk_category_selector",
+        "",
+        obj.data,
+        "sk_categories",
+        mgr,
+        "active_category_index",
+        rows=4,
+        maxrows=8,
+    )
+
+
+def draw_work_options(layout, mgr):
+    box = layout.box()
+    row = box.row(align=True)
+    row.prop(bpy.context.scene.tool_settings, "use_keyframe_insert_auto", text=_("Auto Keyframe"), icon='REC', toggle=True)
+    row.prop(mgr, "mirror_mode", text=_("Mirror Mode"), icon='MOD_MIRROR', toggle=True)
+    row = box.row(align=True)
+    row.prop(mgr, "show_only_keyed", text=_("Show Only Keyed"), toggle=True, icon='DECORATE_KEYFRAME')
+    row.prop(mgr, "reorder_mode", text=_("Move Mode"), toggle=True, icon='ARROW_LEFTRIGHT')
+
+
+def draw_current_category_shape_keys(layout, context, obj, mgr, categories):
+    box = layout.box()
+    box.label(text=_("Shape Keys in Category"), icon='SHAPEKEY_DATA')
+    if len(categories) > 0 and 0 <= mgr.active_category_index < len(categories):
+        row = box.row(align=True)
+        row.prop(mgr, "search_text", text="", icon='VIEWZOOM')
+        box.template_list("MESH_UL_filtered_shapekeys", "", obj.data, "sk_items", mgr, "active_item_index")
+        row = box.row(align=True)
+        row.label(text=_("Batch Select:"))
+        op_sel = row.operator("sk_helper.select_all", text=_("Select All"))
+        op_sel.action = 'SELECT'
+        op_desel = row.operator("sk_helper.select_all", text=_("Deselect All"))
+        op_desel.action = 'DESELECT'
+        op_inv = row.operator("sk_helper.select_all", text=_("Invert Selection"))
+        op_inv.action = 'INVERT'
+        box_anim = box.box()
+        box_anim.label(text=_("Animation Actions"), icon='ACTION')
+        row = box_anim.row(align=True)
+        row.operator("sk_helper.keyframe_batch", text=_("Keyframe Selected Checked"), icon='DECORATE_KEYFRAME')
+        row.operator("sk_helper.reset_selected", text=_("Reset Selected to 0"), icon='LOOP_BACK')
+    else:
+        box.label(text=_("Open Preset Editor to create or select a category"), icon='INFO')
+
+
 class VIEW3D_PT_sk_organizer(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -122,6 +172,29 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
         mgr = context.window_manager.sk_manager
         categories = obj.data.sk_categories
 
+        draw_category_work_selector(layout, obj, mgr)
+        draw_work_options(layout, mgr)
+        draw_current_category_shape_keys(layout, context, obj, mgr, categories)
+
+
+class VIEW3D_PT_sk_preset_editor(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Shape Key Classification'
+    bl_label = 'Preset Editor'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.active_object
+        mgr = context.window_manager.sk_manager
+        categories = obj.data.sk_categories
+
         box = layout.box()
         box.label(text=_("Presets Manager"), icon='PRESET')
         row = box.row(align=True)
@@ -137,51 +210,19 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
         col.operator("sk_helper.remove_category", text="", icon='REMOVE')
         col.operator("sk_helper.reorder_category", text="", icon='TRIA_UP').direction = 'UP'
         col.operator("sk_helper.reorder_category", text="", icon='TRIA_DOWN').direction = 'DOWN'
-        row = box.row(align=True)
-        row.prop(mgr, "show_preset_tools", text=_("Preset Editor"), toggle=True, icon='TOOL_SETTINGS')
 
-        if mgr.show_preset_tools:
-            row = box.row(align=True)
-            row.operator("sk_helper.auto_match", text=_("Auto Match Active"), icon='FILE_REFRESH').target_all = False
-            row.operator("sk_helper.auto_match", text=_("Auto Match All"), icon='FILE_REFRESH').target_all = True
+        row = layout.row(align=True)
+        row.operator("sk_helper.auto_match", text=_("Auto Match Active"), icon='FILE_REFRESH').target_all = False
+        row.operator("sk_helper.auto_match", text=_("Auto Match All"), icon='FILE_REFRESH').target_all = True
 
-            if len(categories) > 0 and 0 <= mgr.active_category_index < len(categories):
-                box_all = box.box()
-                draw_all_shape_key_tools(box_all, context, obj, mgr)
-
-                alias_box = box.box()
-                draw_alias_editor_tools(alias_box, context, obj, mgr)
-
-        box = layout.box()
-        box.label(text=_("Shape Keys in Category"), icon='SHAPEKEY_DATA')
         if len(categories) > 0 and 0 <= mgr.active_category_index < len(categories):
-            row = box.row(align=True)
-            row.prop(mgr, "search_text", text="", icon='VIEWZOOM')
-            row = box.row(align=True)
-            row.prop(mgr, "show_only_keyed", text=_("Show Only Keyed"), toggle=True, icon='DECORATE_KEYFRAME')
-            row.prop(mgr, "reorder_mode", text=_("Move Mode"), toggle=True, icon='ARROW_LEFTRIGHT')
-            box.template_list("MESH_UL_filtered_shapekeys", "", obj.data, "sk_items", mgr, "active_item_index")
-            row = box.row(align=True)
-            row.label(text=_("Batch Select:"))
-            op_sel = row.operator("sk_helper.select_all", text=_("Select All"))
-            op_sel.action = 'SELECT'
-            op_desel = row.operator("sk_helper.select_all", text=_("Deselect All"))
-            op_desel.action = 'DESELECT'
-            op_inv = row.operator("sk_helper.select_all", text=_("Invert Selection"))
-            op_inv.action = 'INVERT'
-            box_anim = box.box()
-            box_anim.label(text=_("Animation Actions"), icon='ACTION')
-            row = box_anim.row(align=True)
-            row.operator("sk_helper.keyframe_batch", text=_("Keyframe Selected Checked"), icon='DECORATE_KEYFRAME')
-            row.operator("sk_helper.reset_selected", text=_("Reset Selected to 0"), icon='LOOP_BACK')
-        else:
-            box.label(text=_("Please create or select a category"), icon='INFO')
+            box_all = layout.box()
+            draw_all_shape_key_tools(box_all, context, obj, mgr)
 
-        box = layout.box()
-        box.label(text=_("Global Option Configuration"), icon='PREFERENCES')
-        col = box.column(align=True)
-        col.prop(mgr, "auto_keyframe", text=_("Auto Keyframe"), icon='REC', toggle=True)
-        col.prop(mgr, "mirror_mode", text=_("Mirror Mode"), icon='MOD_MIRROR', toggle=True)
+            alias_box = layout.box()
+            draw_alias_editor_tools(alias_box, context, obj, mgr)
+        else:
+            layout.label(text=_("Please create or select a category"), icon='INFO')
 
 
 class VIEW3D_PT_sk_frequency_statistics(bpy.types.Panel):

@@ -15,6 +15,17 @@ class MESH_UL_sk_categories(bpy.types.UIList):
             layout.label(text=item.name, icon='FILE_FOLDER')
 
 
+class MESH_UL_sk_category_selector(bpy.types.UIList):
+    """Compact category selector for animation work."""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.label(text=item.name, icon='FILE_FOLDER')
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text=item.name, icon='FILE_FOLDER')
+
+
 class MESH_UL_all_shapekeys(bpy.types.UIList):
     """所有形态键滚动列表。
 

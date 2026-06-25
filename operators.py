@@ -6,7 +6,7 @@ from .core import (
     match_pattern, mirror_name, mirror_side, get_visible_category_item_indices, get_sk_item_index_by_name,
     reorder_sk_items_by_names, check_and_sync_sk_items, set_sk_item_slider_value,
     get_keyframe_value_on_current_frame, get_keyframe_button_icon, has_any_keyframes,
-    tag_redraw_all_areas, iter_action_fcurve_collections,
+    tag_redraw_all_areas, iter_action_fcurve_collections, is_auto_keyframe_enabled,
 )
 
 
@@ -856,7 +856,7 @@ class SK_OT_reset_selected(bpy.types.Operator):
                 kb = key_blocks[item.name]
                 kb.value = 0.0
                 set_sk_item_slider_value(obj.data, kb.name, 0.0)
-                if mgr.auto_keyframe:
+                if is_auto_keyframe_enabled(mgr, context):
                     obj.data.shape_keys.keyframe_insert(
                         data_path=f'key_blocks["{kb.name}"].value',
                         frame=context.scene.frame_current
@@ -866,7 +866,7 @@ class SK_OT_reset_selected(bpy.types.Operator):
                     if m_name and m_name in key_blocks:
                         key_blocks[m_name].value = 0.0
                         set_sk_item_slider_value(obj.data, m_name, 0.0)
-                        if mgr.auto_keyframe:
+                        if is_auto_keyframe_enabled(mgr, context):
                             obj.data.shape_keys.keyframe_insert(
                                 data_path=f'key_blocks["{m_name}"].value',
                                 frame=context.scene.frame_current

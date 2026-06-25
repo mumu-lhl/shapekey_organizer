@@ -5,6 +5,7 @@ _syncing_slider_values = False
 _syncing_all_selection = False
 _syncing_native_value_changes = False
 _syncing_mirror_keyframes = False
+_syncing_auto_keyframe_state = False
 _native_shape_key_value_cache = {}
 _native_frame_keyframe_cache = {}
 
@@ -570,7 +571,7 @@ def set_shapekey_slider_value(self, value):
             for affected_name in apply_value_to_shapekey(mesh, key_blocks, item.name, value, mgr):
                 affected_names.add(affected_name)
 
-    if mgr.auto_keyframe:
+    if is_auto_keyframe_enabled(mgr, context):
         scene = context.scene if context and context.scene else getattr(bpy.context, "scene", None)
         if scene:
             for affected_name in affected_names:
@@ -611,9 +612,47 @@ def on_all_selected_changed(self, context):
 
 def on_auto_keyframe_toggled(self, context):
     """Use Blender's native Auto Key for direct ShapeKey.value editing."""
+    global _syncing_auto_keyframe_state
+    if _syncing_auto_keyframe_state:
+        return
     scene = context.scene if context else getattr(bpy.context, "scene", None)
     if scene and scene.tool_settings:
         scene.tool_settings.use_keyframe_insert_auto = self.auto_keyframe
+
+
+def is_auto_keyframe_enabled(mgr=None, context=None):
+    ctx = context or getattr(bpy, "context", None)
+    scene = getattr(ctx, "scene", None) if ctx else None
+    tool_settings = getattr(scene, "tool_settings", None) if scene else None
+    if tool_settings is not None:
+        return bool(tool_settings.use_keyframe_insert_auto)
+    return bool(getattr(mgr, "auto_keyframe", False))
+
+
+def sync_auto_keyframe_state(scene=None, mgr=None):
+    """Reflect Blender's timeline Auto Key state back into the add-on property."""
+    global _syncing_auto_keyframe_state
+
+    if mgr is None:
+        mgr = get_current_manager()
+    if mgr is None:
+        return False
+
+    scene = scene or getattr(bpy.context, "scene", None)
+    tool_settings = getattr(scene, "tool_settings", None) if scene else None
+    if tool_settings is None:
+        return False
+
+    value = bool(tool_settings.use_keyframe_insert_auto)
+    if bool(mgr.auto_keyframe) == value:
+        return False
+
+    _syncing_auto_keyframe_state = True
+    try:
+        mgr.auto_keyframe = value
+    finally:
+        _syncing_auto_keyframe_state = False
+    return True
 
 
 def on_active_item_index_changed(self, context):
@@ -701,8 +740,11 @@ def sync_shapekey_ui_for_object(obj, depsgraph=None, process_native_value_change
 
 def sync_shapekey_ui_for_scene(scene, depsgraph=None, process_native_value_changes=True):
     context = bpy.context
+    auto_key_changed = sync_auto_keyframe_state(scene)
     obj = context.active_object
     if not obj or obj.type != 'MESH' or not obj.data or not obj.data.shape_keys:
+        if auto_key_changed:
+            tag_redraw_all_areas()
         return
 
     try:
@@ -711,7 +753,7 @@ def sync_shapekey_ui_for_scene(scene, depsgraph=None, process_native_value_chang
             depsgraph=depsgraph,
             process_native_value_changes=process_native_value_changes,
         )
-        if changed:
+        if changed or auto_key_changed:
             tag_redraw_all_areas()
     except Exception:
         pass
