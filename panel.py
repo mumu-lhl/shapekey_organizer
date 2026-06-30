@@ -169,6 +169,24 @@ def draw_current_category_shape_keys(layout, context, obj, mgr, categories):
         box.label(text=_("Open Preset Editor to create or select a category"), icon='INFO')
 
 
+def draw_shape_key_classification_panel(layout, context):
+    obj = context.active_object
+
+    if not obj or obj.type != 'MESH':
+        layout.label(text=_("Please select a Mesh object"), icon='INFO')
+        return
+    if not obj.data.shape_keys:
+        layout.label(text=_("Selected mesh has no Shape Keys"), icon='INFO')
+        return
+
+    mgr = context.window_manager.sk_manager
+    categories = obj.data.sk_categories
+
+    draw_category_work_selector(layout, obj, mgr)
+    draw_work_options(layout, mgr)
+    draw_current_category_shape_keys(layout, context, obj, mgr, categories)
+
+
 class VIEW3D_PT_sk_organizer(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -176,22 +194,23 @@ class VIEW3D_PT_sk_organizer(bpy.types.Panel):
     bl_label = 'Shape Key Classification'
 
     def draw(self, context):
-        layout = self.layout
+        draw_shape_key_classification_panel(self.layout, context)
+
+
+class DATA_PT_sk_organizer(bpy.types.Panel):
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'data'
+    bl_parent_id = 'DATA_PT_shape_keys'
+    bl_label = 'Shape Key Classification'
+
+    @classmethod
+    def poll(cls, context):
         obj = context.active_object
+        return obj and obj.type == 'MESH' and obj.data.shape_keys
 
-        if not obj or obj.type != 'MESH':
-            layout.label(text=_("Please select a Mesh object"), icon='INFO')
-            return
-        if not obj.data.shape_keys:
-            layout.label(text=_("Selected mesh has no Shape Keys"), icon='INFO')
-            return
-
-        mgr = context.window_manager.sk_manager
-        categories = obj.data.sk_categories
-
-        draw_category_work_selector(layout, obj, mgr)
-        draw_work_options(layout, mgr)
-        draw_current_category_shape_keys(layout, context, obj, mgr, categories)
+    def draw(self, context):
+        draw_shape_key_classification_panel(self.layout, context)
 
 
 class VIEW3D_PT_sk_preset_editor(bpy.types.Panel):

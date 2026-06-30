@@ -62,6 +62,7 @@ classes = [
     presets.SK_OT_export_preset,
     presets.SK_OT_import_preset,
     panel.VIEW3D_PT_sk_organizer,
+    panel.DATA_PT_sk_organizer,
     panel.VIEW3D_PT_sk_preset_editor,
     panel.VIEW3D_PT_sk_frequency_statistics,
 ]
